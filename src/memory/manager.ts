@@ -132,8 +132,16 @@ export class MemoryManager {
       httpRequest: config.httpRequest,
     }
 
+    // On native platforms, relative paths must be resolved under the app's
+    // private files directory via the "files://" prefix understood by the
+    // Kotlin/Swift bridge.  Absolute paths and already-prefixed paths pass through.
+    let resolvedPath = this._config.dbPath
+    if (!resolvedPath.startsWith('/') && !resolvedPath.startsWith('files://')) {
+      resolvedPath = `files://${resolvedPath}`
+    }
+
     await LanceDB.open({
-      dbPath: this._config.dbPath,
+      dbPath: resolvedPath,
       embeddingDim: this._config.embeddingDim,
     })
 
