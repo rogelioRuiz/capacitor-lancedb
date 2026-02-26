@@ -1,0 +1,41 @@
+[package]
+name = "lancedb-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "lancedb_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+lancedb = { version = "0.26", default-features = false }
+lance = "2"
+lance-table = "2"
+arrow-array = "57"
+arrow-schema = "57"
+arrow = { version = "57", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+uniffi = { version = "0.28", features = ["tokio", "cli"] }
+serde_json = "1"
+once_cell = "1"
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[patch.crates-io]
+lance-linalg = { path = "../lance-linalg-patched" }
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

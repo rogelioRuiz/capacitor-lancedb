@@ -1,0 +1,64 @@
+{
+  "name": "capacitor-lancedb",
+  "version": "0.1.0",
+  "description": "Native LanceDB vector database plugin for Capacitor — persistent on-device vector memory with ANN search.",
+  "main": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "type": "module",
+  "author": "Techxagon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rogelioRuiz/capacitor-lancedb.git"
+  },
+  "homepage": "https://github.com/rogelioRuiz/capacitor-lancedb#readme",
+  "bugs": {
+    "url": "https://github.com/rogelioRuiz/capacitor-lancedb/issues"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "files": [
+    "dist/esm/",
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources/",
+    "ios/Frameworks/",
+    "CapacitorLanceDB.podspec"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "lancedb",
+    "vector",
+    "embedding",
+    "memory",
+    "ai"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": "^7.0.0 || ^8.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
+    "@capacitor/core": "^8.0.0",
+    "@changesets/cli": "^2.29.0",
+    "typescript": "~5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

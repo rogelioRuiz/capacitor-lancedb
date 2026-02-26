@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# TypeScript
+*.tsbuildinfo
+
+# Rust build artifacts
+rust/lancedb-ffi/target/
+rust/lance-linalg-patched/target/
+
+# Android build artifacts
+android/build/
+android/.gradle/
+
+# iOS build artifacts
+ios/Pods/
+
+# Example app — only keep seed files (package.json, capacitor.config.json)
+example/node_modules/
+example/package-lock.json
+example/android/
+example/ios/
+example/www/
+example/dist/
+
+# Cargo metadata
+.cargo-ok
+.cargo_vcs_info.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

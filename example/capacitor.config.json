@@ -1,0 +1,9 @@
+{
+  "appId": "io.t6x.lancedb.test",
+  "appName": "LanceDB Test",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  },
+  "loggingBehavior": "debug"
+}

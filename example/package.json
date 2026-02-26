@@ -1,0 +1,19 @@
+{
+  "name": "capacitor-lancedb-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "E2E test app for capacitor-lancedb plugin",
+  "scripts": {
+    "sync": "cap sync",
+    "android": "cap run android",
+    "build:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "capacitor-lancedb": "file:.."
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0"
+  }
+}
