@@ -6,11 +6,15 @@
   "scripts": {
     "sync": "cap sync",
     "android": "cap run android",
-    "build:apk": "cd android && ./gradlew assembleDebug"
+    "build:apk": "cd android && ./gradlew assembleDebug",
+    "sync:ios": "cap sync ios",
+    "ios": "cap run ios",
+    "build:ios": "cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -configuration Debug build CONFIGURATION_BUILD_DIR=$(pwd)/build/Debug-iphonesimulator | xcpretty || true"
   },
   "dependencies": {
     "@capacitor/android": "^8.1.0",
     "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
     "capacitor-lancedb": "file:.."
   },
   "devDependencies": {

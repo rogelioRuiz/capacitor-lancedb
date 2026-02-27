@@ -2,6 +2,9 @@
   "appId": "io.t6x.lancedb.test",
   "appName": "LanceDB Test",
   "webDir": "www",
+  "server": {
+    "iosScheme": "capacitor"
+  },
   "android": {
     "allowMixedContent": true
   },

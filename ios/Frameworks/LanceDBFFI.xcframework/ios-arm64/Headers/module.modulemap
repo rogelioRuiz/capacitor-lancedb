@@ -1,0 +1,4 @@
+module lancedb_ffiFFI {
+    header "lancedb_ffiFFI.h"
+    export *
+}

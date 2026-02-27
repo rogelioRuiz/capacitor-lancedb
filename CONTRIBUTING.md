@@ -67,6 +67,58 @@ scripts/
 | `npm run lint:fix` | Auto-fix lint and format issues |
 | `npm run typecheck` | Type-check without emitting |
 
+## Running E2E Tests
+
+The `example/` directory contains a dedicated test app covering all plugin methods. Tests run automatically on app launch and report results via HTTP to a local Node.js server.
+
+### Android
+
+Requires an Android device connected via USB (or an emulator).
+
+```bash
+cd example
+
+# Run the full suite — builds APK, installs, launches, collects results
+node test-e2e-android.mjs
+```
+
+The runner:
+1. Builds the debug APK (`./gradlew assembleDebug`)
+2. Sets up `adb reverse tcp:8099 tcp:8099` so the device can POST to the host
+3. Installs and launches the app
+4. Starts an HTTP server and waits for the app to POST all 11 test results
+
+Expected output: **16/16 passed** (4 setup + 1 handshake + 11 plugin tests).
+
+Set `ADB_PATH` or `ANDROID_SERIAL` environment variables to select a specific device:
+```bash
+ANDROID_SERIAL=emulator-5554 node test-e2e-android.mjs
+```
+
+### iOS Simulator
+
+Requires macOS with Xcode and an Apple Silicon Mac (arm64) — the prebuilt xcframework targets arm64 simulator.
+
+```bash
+# On the Mac — automated: sync from Linux, build, install, run tests
+bash example/setup-mac.sh
+
+# Or, if the app is already installed on the simulator:
+cd example && node test-e2e-ios.mjs
+```
+
+The runner:
+1. Syncs the project from the Linux host via rsync
+2. Copies web assets directly to the Xcode project
+3. Cleans DerivedData, builds for simulator with xcodebuild
+4. Uninstalls + installs the fresh build
+5. Starts an HTTP server (`localhost:8099`) and launches the app
+6. The iOS Simulator shares the Mac's loopback — the app POSTs results to `http://127.0.0.1:8099`
+
+Expected output: **16/16 passed** (4 setup + 1 handshake + 11 plugin tests).
+
+> **Note:** `ios_webkit_debug_proxy` is not required and is not used. The HTTP server approach works on all modern iOS versions.
+
 ## Building Native Binaries
 
 Prebuilt binaries are included in the repo. You only need to rebuild if you modify the Rust FFI code.

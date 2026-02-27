@@ -14,20 +14,45 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "memoryClear", returnType: CAPPluginReturnPromise),
     ]
 
-    private var handle: LanceDBHandle?
+    private var handle: LanceDbHandle?
     private let queue = DispatchQueue(label: "com.t6x.lancedb", qos: .userInitiated, attributes: .concurrent)
 
+    /// Resolves a `files://` prefixed path (Android convention) to an absolute iOS path
+    /// under the app's Documents directory (always writable, always exists).
+    private func resolvePath(_ path: String) -> String {
+        if path.hasPrefix("files://") {
+            let relative = String(path.dropFirst("files://".count))
+            let base = FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask)
+                .first!
+                .path
+            let resolved = (base as NSString).appendingPathComponent(relative)
+            // Ensure the directory exists before Rust tries to open it
+            try? FileManager.default.createDirectory(
+                atPath: resolved,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            NSLog("[LanceDB] resolvePath: %@ → %@", path, resolved)
+            return resolved
+        }
+        NSLog("[LanceDB] resolvePath: using raw path %@", path)
+        return path
+    }
+
     @objc func open(_ call: CAPPluginCall) {
-        guard let dbPath = call.getString("dbPath") else {
+        guard let rawPath = call.getString("dbPath") else {
             return call.reject("dbPath is required")
         }
         guard let embeddingDim = call.getInt("embeddingDim") else {
             return call.reject("embeddingDim is required")
         }
 
+        let dbPath = resolvePath(rawPath)
+
         Task {
             do {
-                self.handle = try await LanceDBHandle.open(dbPath: dbPath, embeddingDim: Int32(embeddingDim))
+                self.handle = try await LanceDbHandle.open(dbPath: dbPath, embeddingDim: Int32(embeddingDim))
                 call.resolve()
             } catch {
                 call.reject("Failed to open LanceDB: \(error.localizedDescription)")
