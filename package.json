@@ -1,7 +1,7 @@
 {
   "name": "capacitor-lancedb",
   "version": "0.1.4",
-  "description": "Native LanceDB vector database plugin for Capacitor — persistent on-device vector memory with ANN search.",
+  "description": "Native LanceDB vector database plugin for Capacitor — on-device vector search with ANN queries. Includes optional memory management layer.",
   "main": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
   "type": "module",

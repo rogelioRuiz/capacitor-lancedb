@@ -10,7 +10,7 @@
  * Sections:
  *   1  Android Setup   (4 tests)
  *   2  HTTP Handshake  (1 test)
- *   3  Plugin API      (11 tests)
+ *   3  Plugin API      (11 legacy + 5 generic = 16 tests)
  */
 
 import { execSync } from 'child_process'
@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BUNDLE_ID   = 'io.t6x.lancedb.test'
 const RUNNER_PORT = 8099
-const TOTAL_TESTS = 11
+const TOTAL_TESTS = 16
 const TIMEOUT_MS  = 120_000
 const ADB         = process.env.ADB_PATH || 'adb'
 
@@ -123,17 +123,24 @@ function startResultServer() {
 
 // ─── Test name map ────────────────────────────────────────────────────────────
 const TEST_NAMES = {
-  open:     'open() — initialise database',
-  store1:   'memoryStore() — insert entry A',
-  store2:   'memoryStore() — insert entry B',
-  upsert:   'memoryStore() — upsert (overwrite) entry A',
-  search:   'memorySearch() — finds A nearest to query',
-  list:     'memoryList() — returns both keys',
-  prefix:   'memoryList(prefix) — filters by prefix',
-  delete:   'memoryDelete() — removes entry B',
-  after_del:'memoryList() after delete — only A remains',
-  clear:    'memoryClear() — drops all data',
-  empty:    'memoryList() after clear — empty',
+  // Legacy memory-prefixed API
+  open:       'open() — initialise database',
+  store1:     'memoryStore() — insert entry A',
+  store2:     'memoryStore() — insert entry B',
+  upsert:     'memoryStore() — upsert (overwrite) entry A',
+  search:     'memorySearch() — finds A nearest to query',
+  list:       'memoryList() — returns both keys',
+  prefix:     'memoryList(prefix) — filters by prefix',
+  delete:     'memoryDelete() — removes entry B',
+  after_del:  'memoryList() after delete — only A remains',
+  clear:      'memoryClear() — drops all data',
+  empty:      'memoryList() after clear — empty',
+  // Generic vector DB API
+  gen_store:  'store() — generic insert',
+  gen_search: 'search() — generic vector search',
+  gen_list:   'list() — generic list keys',
+  gen_delete: 'delete() — generic delete',
+  gen_clear:  'clear() — generic drop all',
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -230,7 +237,7 @@ async function main() {
   // ─── Section 3: Plugin API Results ───────────────────────────────────────
   logSection('3 — Plugin API Results')
 
-  const ORDER = ['open','store1','store2','upsert','search','list','prefix','delete','after_del','clear','empty']
+  const ORDER = ['open','store1','store2','upsert','search','list','prefix','delete','after_del','clear','empty','gen_store','gen_search','gen_list','gen_delete','gen_clear']
   let num = 1
 
   for (const id of ORDER) {

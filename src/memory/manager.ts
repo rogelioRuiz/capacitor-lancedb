@@ -220,7 +220,7 @@ export class MemoryManager {
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
       ])
 
-      const { results } = await LanceDB.memorySearch({
+      const { results } = await LanceDB.search({
         queryVector: vector,
         limit: this._config.recallLimit,
       })
@@ -253,11 +253,11 @@ export class MemoryManager {
       const vector = await this.embed(text)
 
       // Duplicate check
-      const { results } = await LanceDB.memorySearch({ queryVector: vector, limit: 1 })
+      const { results } = await LanceDB.search({ queryVector: vector, limit: 1 })
       if (results.length > 0 && results[0].score >= this._config.dupThreshold) return false
 
       const key = `auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      await LanceDB.memoryStore({
+      await LanceDB.store({
         key,
         agentId: this._config.agentId,
         text,
@@ -334,7 +334,7 @@ export class MemoryManager {
         const limit = (args.limit as number) ?? 5
 
         const vector = await this.embed(query)
-        const { results } = await LanceDB.memorySearch({ queryVector: vector, limit })
+        const { results } = await LanceDB.search({ queryVector: vector, limit })
         const filtered = results.filter((r) => r.score >= 0.3)
 
         if (filtered.length === 0) return { message: 'No relevant memories found.' }
@@ -380,7 +380,7 @@ export class MemoryManager {
         const vector = await this.embed(text)
 
         // Duplicate check
-        const { results } = await LanceDB.memorySearch({ queryVector: vector, limit: 1 })
+        const { results } = await LanceDB.search({ queryVector: vector, limit: 1 })
         if (results.length > 0 && results[0].score >= this._config.dupThreshold) {
           return { action: 'duplicate', existing: results[0].text }
         }
@@ -388,7 +388,7 @@ export class MemoryManager {
         const category = (args.category as MemoryCategory) || detectCategory(text)
         const key = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-        await LanceDB.memoryStore({
+        await LanceDB.store({
           key,
           agentId: this._config.agentId,
           text,
@@ -418,19 +418,19 @@ export class MemoryManager {
         if (!this._initialized) return { error: 'Memory not initialized' }
 
         if (args.key) {
-          await LanceDB.memoryDelete({ key: args.key as string })
+          await LanceDB.delete({ key: args.key as string })
           return { action: 'deleted', key: args.key }
         }
 
         if (args.query) {
           const vector = await this.embed(args.query as string)
-          const { results } = await LanceDB.memorySearch({ queryVector: vector, limit: 5 })
+          const { results } = await LanceDB.search({ queryVector: vector, limit: 5 })
           const filtered = results.filter((r) => r.score >= 0.7)
 
           if (filtered.length === 0) return { message: 'No matching memories found.' }
 
           if (filtered.length === 1 && filtered[0].score > 0.9) {
-            await LanceDB.memoryDelete({ key: filtered[0].key })
+            await LanceDB.delete({ key: filtered[0].key })
             return { action: 'deleted', text: filtered[0].text }
           }
 
@@ -466,7 +466,7 @@ export class MemoryManager {
         const limit = (args.maxResults as number) ?? 5
 
         const vector = await this.embed(query)
-        const { results } = await LanceDB.memorySearch({
+        const { results } = await LanceDB.search({
           queryVector: vector,
           limit,
           filter: 'metadata LIKE \'%"source":"file"%\'',
@@ -566,7 +566,7 @@ export class MemoryManager {
   async count(): Promise<number> {
     if (!this._initialized) return 0
     try {
-      const { keys } = await LanceDB.memoryList()
+      const { keys } = await LanceDB.list()
       return keys.length
     } catch {
       return 0
@@ -576,6 +576,6 @@ export class MemoryManager {
   /** Clear all memories. */
   async clear(): Promise<void> {
     if (!this._initialized) return
-    await LanceDB.memoryClear()
+    await LanceDB.clear()
   }
 }

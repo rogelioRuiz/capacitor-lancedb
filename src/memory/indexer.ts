@@ -105,9 +105,9 @@ export async function indexWorkspaceMemory(
 
   // Clear existing file-indexed entries
   try {
-    const existing = await LanceDB.memoryList({ prefix: 'file:' })
+    const existing = await LanceDB.list({ prefix: 'file:' })
     for (const key of existing.keys) {
-      await LanceDB.memoryDelete({ key })
+      await LanceDB.delete({ key })
     }
   } catch {
     // Table may not exist yet — that's fine
@@ -157,7 +157,7 @@ export async function indexWorkspaceMemory(
           chunkIndex: i,
         })
 
-        await LanceDB.memoryStore({
+        await LanceDB.store({
           key,
           agentId,
           text: chunk.text,

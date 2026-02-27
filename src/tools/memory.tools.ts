@@ -32,7 +32,7 @@ export const memoryTools: DeviceTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      await LanceDB.memoryStore({
+      await LanceDB.store({
         key: args.key as string,
         agentId: args.agentId as string,
         text: args.text as string,
@@ -67,7 +67,7 @@ export const memoryTools: DeviceTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const result = await LanceDB.memorySearch({
+      const result = await LanceDB.search({
         queryVector: args.queryVector as number[],
         limit: (args.limit as number) ?? 5,
         filter: args.filter as string | undefined,
@@ -87,7 +87,7 @@ export const memoryTools: DeviceTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      await LanceDB.memoryDelete({ key: args.key as string })
+      await LanceDB.delete({ key: args.key as string })
       return { success: true }
     },
   },
@@ -103,7 +103,7 @@ export const memoryTools: DeviceTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const result = await LanceDB.memoryList({
+      const result = await LanceDB.list({
         prefix: args.prefix as string | undefined,
         limit: args.limit as number | undefined,
       })
@@ -121,7 +121,7 @@ export const memoryTools: DeviceTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      await LanceDB.memoryClear({
+      await LanceDB.clear({
         collection: args.collection as string | undefined,
       })
       return { success: true }

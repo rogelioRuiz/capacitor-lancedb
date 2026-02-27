@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LanceDB E2E Tests</title>
+  <style>
+    body { font-family: monospace; background: #0d0d0d; color: #e0e0e0; padding: 16px; font-size: 14px; }
+    h1 { color: #7c3aed; margin-bottom: 4px; font-size: 18px; }
+    .subtitle { color: #666; margin-bottom: 20px; font-size: 12px; }
+    .test { margin: 6px 0; padding: 8px 12px; border-radius: 6px; display: flex; align-items: flex-start; gap: 8px; }
+    .test.pass { background: #0a2a0a; border-left: 3px solid #22c55e; }
+    .test.fail { background: #2a0a0a; border-left: 3px solid #ef4444; }
+    .test.running { background: #1a1a0a; border-left: 3px solid #eab308; }
+    .test.pending { background: #1a1a1a; border-left: 3px solid #444; }
+    .badge { font-weight: bold; min-width: 60px; flex-shrink: 0; }
+    .pass .badge { color: #22c55e; }
+    .fail .badge { color: #ef4444; }
+    .running .badge { color: #eab308; }
+    .pending .badge { color: #666; }
+    .detail { color: #999; font-size: 12px; margin-top: 2px; word-break: break-all; }
+    #summary { margin-top: 20px; padding: 12px; border-radius: 8px; background: #111; font-size: 15px; }
+    #status { color: #666; margin-bottom: 12px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>capacitor-lancedb</h1>
+  <div class="subtitle">E2E Integration Tests</div>
+  <div id="status">Waiting for Capacitor bridge...</div>
+  <div id="tests"></div>
+  <div id="summary"></div>
+
+  <!-- Capacitor bridge -->
+  <script src="capacitor.js"></script>
+  <script>
+    // ─── Structured result emission ───────────────────────────────────────────
+    // POSTs results to the Node.js test runner via HTTP (simulator shares loopback).
+    // Falls back gracefully if the server isn't running.
+    const RUNNER_URL = 'http://127.0.0.1:8099';
+
+    async function emitResult(id, status, detail, error) {
+      const payload = { id, status };
+      if (detail) payload.detail = detail;
+      if (error)  payload.error  = error;
+      console.log('TEST ' + id + ': ' + status + (detail ? ' — ' + detail : '') + (error ? ' — ' + error : ''));
+      try {
+        await fetch(RUNNER_URL + '/__lancedb_result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch { /* runner not listening, ignore */ }
+    }
+
+    async function emitDone(passed, failed, total) {
+      console.log('DONE: ' + passed + '/' + total + ' passed');
+      try {
+        await fetch(RUNNER_URL + '/__lancedb_done', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passed, failed, total }),
+        });
+      } catch { /* ignore */ }
+    }
+
+    // ─── Test definitions ────────────────────────────────────────────────────
+    const tests = [
+      // Legacy memory-prefixed API (backward compatibility)
+      { id: 'open',     name: 'open() — initialise database' },
+      { id: 'store1',   name: 'memoryStore() — insert entry A' },
+      { id: 'store2',   name: 'memoryStore() — insert entry B' },
+      { id: 'upsert',   name: 'memoryStore() — upsert (overwrite) entry A' },
+      { id: 'search',   name: 'memorySearch() — finds A nearest to query' },
+      { id: 'list',     name: 'memoryList() — returns both keys' },
+      { id: 'prefix',   name: 'memoryList(prefix) — filters by prefix' },
+      { id: 'delete',   name: 'memoryDelete() — removes entry B' },
+      { id: 'after_del',name: 'memoryList() after delete — only A remains' },
+      { id: 'clear',    name: 'memoryClear() — drops all data' },
+      { id: 'empty',    name: 'memoryList() after clear — empty' },
+      // Generic vector DB API
+      { id: 'gen_store',  name: 'store() — generic insert' },
+      { id: 'gen_search', name: 'search() — generic vector search' },
+      { id: 'gen_list',   name: 'list() — generic list keys' },
+      { id: 'gen_delete', name: 'delete() — generic delete' },
+      { id: 'gen_clear',  name: 'clear() — generic drop all' },
+    ];
+
+    const DIM = 4;
+    const vec = (...vals) => vals;
+
+    // ─── UI helpers ──────────────────────────────────────────────────────────
+    const uiResults = {};
+    tests.forEach(t => uiResults[t.id] = { status: 'pending' });
+
+    function renderTests() {
+      const container = document.getElementById('tests');
+      container.innerHTML = tests.map(t => {
+        const r = uiResults[t.id] || { status: 'pending' };
+        return `
+          <div class="test ${r.status}">
+            <span class="badge">${
+              r.status === 'pass'    ? '✓ PASS'  :
+              r.status === 'fail'   ? '✗ FAIL'  :
+              r.status === 'running'? '… RUN'   : '  ---'
+            }</span>
+            <div>
+              <div>${t.name}</div>
+              ${r.detail ? `<div class="detail">${r.detail}</div>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function mark(id, status, detail) {
+      uiResults[id] = { status, detail: detail || '' };
+      renderTests();
+    }
+
+    // ─── Main test runner ────────────────────────────────────────────────────
+    async function runTests() {
+      const LanceDB = window.Capacitor.Plugins.LanceDB;
+      const dbPath = 'files://lancedb_test';
+      let passed = 0, failed = 0;
+
+      async function run(id, fn) {
+        mark(id, 'running');
+        try {
+          const detail = await fn();
+          mark(id, 'pass', detail || '');
+          await emitResult(id, 'pass', detail || '');
+          passed++;
+        } catch (err) {
+          const msg = err?.message || String(err);
+          mark(id, 'fail', msg);
+          await emitResult(id, 'fail', '', msg);
+          failed++;
+        }
+      }
+
+      // ═══ Legacy memory-prefixed API tests ═══════════════════════════════════
+
+      // 1. open
+      await run('open', async () => {
+        await LanceDB.open({ dbPath, embeddingDim: DIM });
+      });
+
+      // 2. store A
+      await run('store1', async () => {
+        await LanceDB.memoryStore({
+          key: 'mem:A',
+          agentId: 'test-agent',
+          text: 'The capital of France is Paris',
+          embedding: vec(0.9, 0.1, 0.0, 0.0),
+          metadata: JSON.stringify({ category: 'geography' }),
+        });
+      });
+
+      // 3. store B
+      await run('store2', async () => {
+        await LanceDB.memoryStore({
+          key: 'mem:B',
+          agentId: 'test-agent',
+          text: 'LanceDB is a vector database written in Rust',
+          embedding: vec(0.0, 0.0, 0.9, 0.1),
+        });
+      });
+
+      // 4. upsert A
+      await run('upsert', async () => {
+        await LanceDB.memoryStore({
+          key: 'mem:A',
+          agentId: 'test-agent',
+          text: 'Paris is the capital and largest city of France',
+          embedding: vec(0.95, 0.05, 0.0, 0.0),
+        });
+        return 'overwrite accepted without error';
+      });
+
+      // 5. search
+      await run('search', async () => {
+        const { results: hits } = await LanceDB.memorySearch({
+          queryVector: vec(0.95, 0.05, 0.0, 0.0),
+          limit: 2,
+        });
+        const topKey = hits[0]?.key;
+        if (topKey !== 'mem:A') throw new Error(`expected mem:A as top result, got ${topKey}`);
+        return `top=${topKey} score=${hits[0].score.toFixed(4)}`;
+      });
+
+      // 6. list all
+      await run('list', async () => {
+        const { keys } = await LanceDB.memoryList({});
+        if (!keys.includes('mem:A') || !keys.includes('mem:B'))
+          throw new Error(`got: [${keys.join(', ')}]`);
+        return `keys: [${keys.join(', ')}]`;
+      });
+
+      // 7. list with prefix
+      await run('prefix', async () => {
+        const { keys } = await LanceDB.memoryList({ prefix: 'mem:' });
+        if (keys.length !== 2) throw new Error(`expected 2 got ${keys.length}: [${keys.join(', ')}]`);
+        return `${keys.length} keys match prefix "mem:"`;
+      });
+
+      // 8. delete B
+      await run('delete', async () => {
+        await LanceDB.memoryDelete({ key: 'mem:B' });
+      });
+
+      // 9. list after delete
+      await run('after_del', async () => {
+        const { keys } = await LanceDB.memoryList({});
+        if (keys.length !== 1 || keys[0] !== 'mem:A')
+          throw new Error(`expected [mem:A], got [${keys.join(', ')}]`);
+        return `remaining: [${keys.join(', ')}]`;
+      });
+
+      // 10. clear
+      await run('clear', async () => {
+        await LanceDB.memoryClear({});
+      });
+
+      // 11. list after clear
+      await run('empty', async () => {
+        const { keys } = await LanceDB.memoryList({});
+        if (keys.length !== 0) throw new Error(`expected empty, got [${keys.join(', ')}]`);
+        return 'table is empty';
+      });
+
+      // ═══ Generic vector DB API tests ════════════════════════════════════════
+
+      // 12. store() — generic insert
+      await run('gen_store', async () => {
+        await LanceDB.store({
+          key: 'vec:X',
+          agentId: 'test-agent',
+          text: 'Generic store test entry',
+          embedding: vec(0.5, 0.5, 0.0, 0.0),
+          metadata: JSON.stringify({ source: 'generic-api-test' }),
+        });
+        return 'entry stored via generic API';
+      });
+
+      // 13. search() — generic vector search
+      await run('gen_search', async () => {
+        const { results: hits } = await LanceDB.search({
+          queryVector: vec(0.5, 0.5, 0.0, 0.0),
+          limit: 1,
+        });
+        if (hits.length === 0) throw new Error('no results');
+        if (hits[0].key !== 'vec:X') throw new Error(`expected vec:X, got ${hits[0].key}`);
+        return `top=${hits[0].key} score=${hits[0].score.toFixed(4)}`;
+      });
+
+      // 14. list() — generic list keys
+      await run('gen_list', async () => {
+        const { keys } = await LanceDB.list({ prefix: 'vec:' });
+        if (keys.length !== 1 || keys[0] !== 'vec:X')
+          throw new Error(`expected [vec:X], got [${keys.join(', ')}]`);
+        return `keys: [${keys.join(', ')}]`;
+      });
+
+      // 15. delete() — generic delete
+      await run('gen_delete', async () => {
+        await LanceDB.delete({ key: 'vec:X' });
+        const { keys } = await LanceDB.list({ prefix: 'vec:' });
+        if (keys.length !== 0) throw new Error(`expected empty, got [${keys.join(', ')}]`);
+        return 'deleted and verified';
+      });
+
+      // 16. clear() — generic drop all
+      await run('gen_clear', async () => {
+        // Store something first, then clear
+        await LanceDB.store({
+          key: 'vec:cleanup',
+          agentId: 'test-agent',
+          text: 'Temporary entry for clear test',
+          embedding: vec(0.1, 0.1, 0.1, 0.1),
+        });
+        await LanceDB.clear({});
+        const { keys } = await LanceDB.list({});
+        if (keys.length !== 0) throw new Error(`expected empty after clear, got ${keys.length} keys`);
+        return 'clear and verified empty';
+      });
+
+      // ─── Summary ───────────────────────────────────────────────────────────
+      const total = tests.length;
+      const summary = document.getElementById('summary');
+      summary.textContent = `${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ' ✓ ALL PASS'}`;
+      summary.style.color = failed ? '#ef4444' : '#22c55e';
+
+      emitDone(passed, failed, total);
+    }
+
+    // ─── Auto-start: poll for Capacitor bridge ───────────────────────────────
+    async function waitForBridgeAndRun() {
+      const statusEl = document.getElementById('status');
+      renderTests();
+
+      // Poll up to 30s for the LanceDB plugin to be available
+      for (let i = 0; i < 60; i++) {
+        if (window.Capacitor?.Plugins?.LanceDB) {
+          statusEl.textContent = 'Bridge ready — running tests...';
+          console.log('__LANCEDB_BRIDGE_READY__');
+          try {
+            await runTests();
+          } catch (err) {
+            console.error('Test runner crashed:', err);
+            emitDone(0, tests.length, tests.length);
+          }
+          return;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      statusEl.textContent = 'ERROR: Capacitor bridge not ready after 30s';
+      console.error('__LANCEDB_BRIDGE_TIMEOUT__');
+      emitDone(0, tests.length, tests.length);
+    }
+
+    window.addEventListener('DOMContentLoaded', waitForBridgeAndRun);
+  </script>
+</body>
+</html>

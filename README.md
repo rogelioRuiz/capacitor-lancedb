@@ -4,13 +4,14 @@
 [![CI](https://github.com/rogelioRuiz/capacitor-lancedb/actions/workflows/ci.yml/badge.svg)](https://github.com/rogelioRuiz/capacitor-lancedb/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Native LanceDB vector database plugin for Capacitor — persistent on-device vector memory with ANN search, powered by Rust FFI.
+Native LanceDB vector database plugin for Capacitor — on-device vector search with ANN queries, powered by Rust FFI. Includes an optional memory management layer for AI agent workflows.
 
 ## Features
 
 - **On-device vector storage** — no cloud dependency, all data stays on the device
 - **Approximate nearest neighbor (ANN) search** — fast similarity search via LanceDB
-- **Semantic memory manager** — auto-recall and auto-capture for AI agent workflows
+- **Generic vector DB API** — `store`, `search`, `delete`, `list`, `clear`
+- **Optional memory layer** — auto-recall, auto-capture, and agent tools for AI workflows
 - **Prompt injection detection** — built-in heuristics to filter unsafe stored content
 - **Markdown file indexing** — chunk and index MEMORY.md and workspace files
 - **Cross-platform** — Android (arm64) and iOS (arm64 + simulator)
@@ -24,56 +25,54 @@ npx cap sync
 
 ## Quick Start
 
-### Low-level plugin API
+### Vector DB API
 
 ```typescript
 import { LanceDB } from 'capacitor-lancedb'
 
 // Open a database (auto-created if it doesn't exist)
-await LanceDB.open({ dbPath: 'files://memories', embeddingDim: 1536 })
+await LanceDB.open({ dbPath: 'files://my-vectors', embeddingDim: 768 })
 
-// Store a vector
-await LanceDB.memoryStore({
-  key: 'fact-1',
-  agentId: 'main',
+// Store a vector entry
+await LanceDB.store({
+  key: 'doc-1',
+  agentId: 'default',
   text: 'The user prefers dark mode',
-  embedding: [0.1, 0.2, ...], // 1536-dim vector
+  embedding: [0.1, 0.2, ...], // your embedding vector
 })
 
 // Search by similarity
-const { results } = await LanceDB.memorySearch({
+const { results } = await LanceDB.search({
   queryVector: [0.1, 0.2, ...],
   limit: 5,
 })
 
 // List, delete, clear
-const { keys } = await LanceDB.memoryList({ prefix: 'fact-' })
-await LanceDB.memoryDelete({ key: 'fact-1' })
-await LanceDB.memoryClear()
+const { keys } = await LanceDB.list({ prefix: 'doc-' })
+await LanceDB.delete({ key: 'doc-1' })
+await LanceDB.clear()
 ```
 
-### High-level MemoryManager
+### MemoryManager (optional)
 
 The `MemoryManager` wraps the plugin with embedding generation, auto-recall, auto-capture, and agent tools:
 
 ```typescript
 import { MemoryManager } from 'capacitor-lancedb'
 
-const memory = new MemoryManager({
+const memory = new MemoryManager()
+await memory.init({
   openaiApiKey: 'sk-...',  // for embeddings (falls back to local hash)
-  httpFetch: myFetchFn,     // CORS-bypassing fetch (e.g. CapacitorHttp)
 })
-
-await memory.init()
 
 // Get agent tools to register with your AI engine
 const tools = memory.getTools()
 
 // Auto-recall: inject relevant memories before a turn
-const context = await memory.recallForPrompt('What theme does the user like?')
+const context = await memory.recall('What theme does the user like?')
 
 // Auto-capture: detect and store memorable content
-await memory.captureFromResponse('The user said they prefer dark mode.')
+await memory.capture('The user said they prefer dark mode.')
 ```
 
 ## API
@@ -83,11 +82,13 @@ await memory.captureFromResponse('The user said they prefer dark mode.')
 | Method | Description |
 |--------|-------------|
 | `open({ dbPath, embeddingDim })` | Open or create a database |
-| `memoryStore({ key, agentId, text, embedding, metadata? })` | Store a vector entry (upsert) |
-| `memorySearch({ queryVector, limit, filter? })` | ANN search, returns `SearchResult[]` |
-| `memoryDelete({ key })` | Delete an entry by key |
-| `memoryList({ prefix?, limit? })` | List keys, optionally filtered |
-| `memoryClear({ collection? })` | Drop all data |
+| `store({ key, agentId, text, embedding, metadata? })` | Store a vector entry (upsert) |
+| `search({ queryVector, limit, filter? })` | ANN search, returns `SearchResult[]` |
+| `delete({ key })` | Delete an entry by key |
+| `list({ prefix?, limit? })` | List keys, optionally filtered |
+| `clear({ collection? })` | Drop all data |
+
+> The legacy `memoryStore`, `memorySearch`, `memoryDelete`, `memoryList`, and `memoryClear` methods are still available as deprecated aliases for backward compatibility.
 
 ### MemoryManager Tools
 
@@ -100,6 +101,16 @@ The `MemoryManager` exposes 5 agent tools:
 | `memory_forget` | Delete memories by search or key |
 | `memory_search` | Search file-indexed content only |
 | `memory_get` | Read MEMORY.md snippets |
+
+## E2E Tests
+
+16/16 tests passing on both platforms — legacy `memory*` API (backward compat) + generic vector DB API:
+
+<p align="center">
+  <img src="docs/e2e-android.png" width="280" alt="Android E2E — 16/16 pass" />
+  &nbsp;&nbsp;
+  <img src="docs/e2e-ios.png" width="280" alt="iOS E2E — 16/16 pass" />
+</p>
 
 ## Platforms
 

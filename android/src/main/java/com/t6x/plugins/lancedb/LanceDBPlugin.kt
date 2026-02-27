@@ -44,8 +44,48 @@ class LanceDBPlugin : Plugin() {
         }
     }
 
+    // ── Generic Vector DB API ──────────────────────────────────
+
     @PluginMethod
-    fun memoryStore(call: PluginCall) {
+    fun store(call: PluginCall) { doStore(call) }
+
+    @PluginMethod
+    fun search(call: PluginCall) { doSearch(call) }
+
+    @PluginMethod
+    fun delete(call: PluginCall) { doDelete(call) }
+
+    @PluginMethod
+    fun list(call: PluginCall) { doList(call) }
+
+    @PluginMethod
+    fun clear(call: PluginCall) { doClear(call) }
+
+    // ── Deprecated memory-prefixed aliases ─────────────────────
+
+    @Deprecated("Use store() instead")
+    @PluginMethod
+    fun memoryStore(call: PluginCall) { doStore(call) }
+
+    @Deprecated("Use search() instead")
+    @PluginMethod
+    fun memorySearch(call: PluginCall) { doSearch(call) }
+
+    @Deprecated("Use delete() instead")
+    @PluginMethod
+    fun memoryDelete(call: PluginCall) { doDelete(call) }
+
+    @Deprecated("Use list() instead")
+    @PluginMethod
+    fun memoryList(call: PluginCall) { doList(call) }
+
+    @Deprecated("Use clear() instead")
+    @PluginMethod
+    fun memoryClear(call: PluginCall) { doClear(call) }
+
+    // ── Private helpers ────────────────────────────────────────
+
+    private fun doStore(call: PluginCall) {
         val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
         val key = call.getString("key") ?: return call.reject("key is required")
         val agentId = call.getString("agentId") ?: return call.reject("agentId is required")
@@ -61,13 +101,12 @@ class LanceDBPlugin : Plugin() {
                 h.store(key, agentId, text, embedding, metadata)
                 call.resolve()
             } catch (e: Exception) {
-                call.reject("memoryStore failed: ${e.message}", e)
+                call.reject("store failed: ${e.message}", e)
             }
         }
     }
 
-    @PluginMethod
-    fun memorySearch(call: PluginCall) {
+    private fun doSearch(call: PluginCall) {
         val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
         val queryVectorArr = call.getArray("queryVector")
             ?: return call.reject("queryVector is required")
@@ -94,13 +133,12 @@ class LanceDBPlugin : Plugin() {
                 ret.put("results", arr)
                 call.resolve(ret)
             } catch (e: Exception) {
-                call.reject("memorySearch failed: ${e.message}", e)
+                call.reject("search failed: ${e.message}", e)
             }
         }
     }
 
-    @PluginMethod
-    fun memoryDelete(call: PluginCall) {
+    private fun doDelete(call: PluginCall) {
         val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
         val key = call.getString("key") ?: return call.reject("key is required")
 
@@ -109,13 +147,12 @@ class LanceDBPlugin : Plugin() {
                 h.delete(key)
                 call.resolve()
             } catch (e: Exception) {
-                call.reject("memoryDelete failed: ${e.message}", e)
+                call.reject("delete failed: ${e.message}", e)
             }
         }
     }
 
-    @PluginMethod
-    fun memoryList(call: PluginCall) {
+    private fun doList(call: PluginCall) {
         val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
         val prefix = call.getString("prefix")
         val limit = call.getInt("limit")
@@ -131,13 +168,12 @@ class LanceDBPlugin : Plugin() {
                 ret.put("keys", arr)
                 call.resolve(ret)
             } catch (e: Exception) {
-                call.reject("memoryList failed: ${e.message}", e)
+                call.reject("list failed: ${e.message}", e)
             }
         }
     }
 
-    @PluginMethod
-    fun memoryClear(call: PluginCall) {
+    private fun doClear(call: PluginCall) {
         val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
         val collection = call.getString("collection")
 
@@ -146,7 +182,7 @@ class LanceDBPlugin : Plugin() {
                 h.clear(collection)
                 call.resolve()
             } catch (e: Exception) {
-                call.reject("memoryClear failed: ${e.message}", e)
+                call.reject("clear failed: ${e.message}", e)
             }
         }
     }

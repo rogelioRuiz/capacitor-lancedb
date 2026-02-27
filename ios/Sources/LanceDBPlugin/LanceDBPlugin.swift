@@ -7,6 +7,13 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "LanceDB"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
+        // Generic vector DB API
+        CAPPluginMethod(name: "store", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "search", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "delete", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
+        // Deprecated memory-prefixed aliases
         CAPPluginMethod(name: "memoryStore", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "memorySearch", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "memoryDelete", returnType: CAPPluginReturnPromise),
@@ -60,7 +67,25 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @objc func memoryStore(_ call: CAPPluginCall) {
+    // ── Generic Vector DB API ──────────────────────────────────
+
+    @objc func store(_ call: CAPPluginCall) { doStore(call) }
+    @objc func search(_ call: CAPPluginCall) { doSearch(call) }
+    @objc func delete(_ call: CAPPluginCall) { doDelete(call) }
+    @objc func list(_ call: CAPPluginCall) { doList(call) }
+    @objc func clear(_ call: CAPPluginCall) { doClear(call) }
+
+    // ── Deprecated memory-prefixed aliases ─────────────────────
+
+    @objc func memoryStore(_ call: CAPPluginCall) { doStore(call) }
+    @objc func memorySearch(_ call: CAPPluginCall) { doSearch(call) }
+    @objc func memoryDelete(_ call: CAPPluginCall) { doDelete(call) }
+    @objc func memoryList(_ call: CAPPluginCall) { doList(call) }
+    @objc func memoryClear(_ call: CAPPluginCall) { doClear(call) }
+
+    // ── Private helpers ────────────────────────────────────────
+
+    private func doStore(_ call: CAPPluginCall) {
         guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
         guard let key = call.getString("key") else { return call.reject("key is required") }
         guard let agentId = call.getString("agentId") else { return call.reject("agentId is required") }
@@ -77,12 +102,12 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
                 try await handle.store(key: key, agentId: agentId, text: text, embedding: embedding, metadata: metadata)
                 call.resolve()
             } catch {
-                call.reject("memoryStore failed: \(error.localizedDescription)")
+                call.reject("store failed: \(error.localizedDescription)")
             }
         }
     }
 
-    @objc func memorySearch(_ call: CAPPluginCall) {
+    private func doSearch(_ call: CAPPluginCall) {
         guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
         guard let queryArr = call.getArray("queryVector") as? [NSNumber] else {
             return call.reject("queryVector is required")
@@ -109,12 +134,12 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 call.resolve(["results": arr])
             } catch {
-                call.reject("memorySearch failed: \(error.localizedDescription)")
+                call.reject("search failed: \(error.localizedDescription)")
             }
         }
     }
 
-    @objc func memoryDelete(_ call: CAPPluginCall) {
+    private func doDelete(_ call: CAPPluginCall) {
         guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
         guard let key = call.getString("key") else { return call.reject("key is required") }
 
@@ -123,12 +148,12 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
                 try await handle.delete(key: key)
                 call.resolve()
             } catch {
-                call.reject("memoryDelete failed: \(error.localizedDescription)")
+                call.reject("delete failed: \(error.localizedDescription)")
             }
         }
     }
 
-    @objc func memoryList(_ call: CAPPluginCall) {
+    private func doList(_ call: CAPPluginCall) {
         guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
 
         let prefix = call.getString("prefix")
@@ -139,12 +164,12 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
                 let keys = try await handle.list(prefix: prefix, limit: limit)
                 call.resolve(["keys": keys])
             } catch {
-                call.reject("memoryList failed: \(error.localizedDescription)")
+                call.reject("list failed: \(error.localizedDescription)")
             }
         }
     }
 
-    @objc func memoryClear(_ call: CAPPluginCall) {
+    private func doClear(_ call: CAPPluginCall) {
         guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
 
         let collection = call.getString("collection")
@@ -154,7 +179,7 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
                 try await handle.clear(collection: collection)
                 call.resolve()
             } catch {
-                call.reject("memoryClear failed: \(error.localizedDescription)")
+                call.reject("clear failed: \(error.localizedDescription)")
             }
         }
     }

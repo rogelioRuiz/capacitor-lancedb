@@ -24,6 +24,7 @@ example/package-lock.json
 example/android/
 example/ios/
 example/www/
+!example/www/index.html
 example/dist/
 
 # Cargo metadata
