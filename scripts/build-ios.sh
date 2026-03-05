@@ -23,14 +23,12 @@ cargo run --bin uniffi-bindgen -- generate \
   --language swift \
   --out-dir "$PLUGIN_DIR/ios/Sources/LanceDBPlugin/Generated/"
 
-# Copy generated headers for xcframework
+# Copy generated headers for xcframework (nested subdir avoids modulemap collision)
 HEADERS_TMP="$RUST_DIR/target/xcframework-headers"
 rm -rf "$HEADERS_TMP"
-mkdir -p "$HEADERS_TMP"
-cp "$PLUGIN_DIR/ios/Sources/LanceDBPlugin/Generated/lancedb_ffiFFI.h" "$HEADERS_TMP/"
-cp "$PLUGIN_DIR/ios/Sources/LanceDBPlugin/Generated/lancedb_ffiFFI.modulemap" "$HEADERS_TMP/"
-# Add module.modulemap for SPM compatibility (Xcode 15+ explicit module builds)
-cat > "$HEADERS_TMP/module.modulemap" << 'EOF'
+mkdir -p "$HEADERS_TMP/lancedb_ffi"
+cp "$PLUGIN_DIR/ios/Sources/LanceDBPlugin/Generated/lancedb_ffiFFI.h" "$HEADERS_TMP/lancedb_ffi/"
+cat > "$HEADERS_TMP/lancedb_ffi/module.modulemap" << 'EOF'
 module lancedb_ffiFFI {
     header "lancedb_ffiFFI.h"
     export *
@@ -46,11 +44,11 @@ xcodebuild -create-xcframework \
   -headers "$HEADERS_TMP" \
   -output "$XCFRAMEWORK_DIR"
 
-# Copy the Swift binding into each slice's Headers directory (for documentation/IDE use)
+# Copy the Swift binding into each slice's Headers subdirectory (for documentation/IDE use)
 for SLICE in ios-arm64 ios-arm64-simulator; do
-  if [ -d "$XCFRAMEWORK_DIR/$SLICE/Headers" ]; then
+  if [ -d "$XCFRAMEWORK_DIR/$SLICE/Headers/lancedb_ffi" ]; then
     cp "$PLUGIN_DIR/ios/Sources/LanceDBPlugin/Generated/lancedb_ffi.swift" \
-      "$XCFRAMEWORK_DIR/$SLICE/Headers/"
+      "$XCFRAMEWORK_DIR/$SLICE/Headers/lancedb_ffi/"
   fi
 done
 
