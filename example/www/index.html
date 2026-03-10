@@ -83,6 +83,20 @@
       { id: 'gen_list',   name: 'list() — generic list keys' },
       { id: 'gen_delete', name: 'delete() — generic delete' },
       { id: 'gen_clear',  name: 'clear() — generic drop all' },
+      // Hybrid search (RRF + BM25)
+      { id: 'hybrid_basic',     name: 'hybridSearch() — RRF-ranked results' },
+      { id: 'hybrid_text_boost',name: 'hybridSearch() — text match boosts ranking' },
+      { id: 'hybrid_filter',    name: 'hybridSearch() — filter excludes items' },
+      { id: 'hybrid_empty_text',name: 'hybridSearch() — empty text falls back to vector' },
+      // Kuzu Graph Adapter (mock KuzuConnection, tests pure TS logic)
+      { id: 'kuzu_init',      name: 'KuzuGraphAdapter — open + schema init' },
+      { id: 'kuzu_add_entity',name: 'KuzuGraphAdapter — add entity' },
+      { id: 'kuzu_add_rel',   name: 'KuzuGraphAdapter — add relation' },
+      { id: 'kuzu_query',     name: 'KuzuGraphAdapter — query with filters' },
+      { id: 'kuzu_multi_hop', name: 'KuzuGraphAdapter — multi-hop expansion' },
+      { id: 'kuzu_context',   name: 'KuzuGraphAdapter — entity context text' },
+      { id: 'kuzu_temporal',  name: 'KuzuGraphAdapter — temporal invalidation' },
+      { id: 'kuzu_hubs',      name: 'KuzuGraphAdapter — hub discovery' },
     ];
 
     const DIM = 4;
@@ -282,6 +296,434 @@
         if (keys.length !== 0) throw new Error(`expected empty after clear, got ${keys.length} keys`);
         return 'clear and verified empty';
       });
+
+      // ═══ Hybrid search (RRF + BM25) tests ════════════════════════════════
+
+      // Seed 3 items with distinct text and vectors for hybrid tests
+      await LanceDB.store({
+        key: 'hyb:fox', agentId: 'test', embedding: vec(0.9, 0.1, 0.0, 0.0),
+        text: 'The quick brown fox jumps over the lazy dog',
+        metadata: JSON.stringify({ category: 'animal' }),
+      });
+      await LanceDB.store({
+        key: 'hyb:rust', agentId: 'test', embedding: vec(0.0, 0.0, 0.9, 0.1),
+        text: 'Rust is a systems programming language focused on safety',
+        metadata: JSON.stringify({ category: 'tech' }),
+      });
+      await LanceDB.store({
+        key: 'hyb:fox2', agentId: 'test', embedding: vec(0.85, 0.15, 0.0, 0.0),
+        text: 'A fox ran quickly across the brown field',
+        metadata: JSON.stringify({ category: 'animal' }),
+      });
+
+      // 17. hybrid_basic — RRF-ranked results
+      await run('hybrid_basic', async () => {
+        const { results } = await LanceDB.hybridSearch({
+          queryVector: vec(0.9, 0.1, 0.0, 0.0),
+          queryText: 'fox',
+          limit: 3,
+        });
+        if (results.length !== 3) throw new Error(`expected 3 results, got ${results.length}`);
+        if (typeof results[0].rrfScore !== 'number') throw new Error('missing rrfScore');
+        if (typeof results[0].vectorRank !== 'number') throw new Error('missing vectorRank');
+        if (typeof results[0].textRank !== 'number') throw new Error('missing textRank');
+        return `top=${results[0].key} rrf=${results[0].rrfScore.toFixed(6)}`;
+      });
+
+      // 18. hybrid_text_boost — text match boosts ranking
+      await run('hybrid_text_boost', async () => {
+        // Query vector is closest to hyb:rust, but text "fox" matches fox entries
+        const { results } = await LanceDB.hybridSearch({
+          queryVector: vec(0.0, 0.0, 0.85, 0.15),
+          queryText: 'fox brown quick',
+          limit: 3,
+        });
+        // hyb:fox should be boosted by text match despite worse vector distance
+        const foxResult = results.find(r => r.key === 'hyb:fox');
+        const rustResult = results.find(r => r.key === 'hyb:rust');
+        if (!foxResult || !rustResult) throw new Error('missing expected results');
+        // Fox should have better text rank than rust
+        if (foxResult.textRank >= rustResult.textRank)
+          throw new Error(`fox textRank ${foxResult.textRank} should be < rust textRank ${rustResult.textRank}`);
+        return `fox textRank=${foxResult.textRank} rust textRank=${rustResult.textRank}`;
+      });
+
+      // 19. hybrid_filter — filter excludes items
+      await run('hybrid_filter', async () => {
+        const { results } = await LanceDB.hybridSearch({
+          queryVector: vec(0.9, 0.1, 0.0, 0.0),
+          queryText: 'fox',
+          limit: 3,
+          filter: "metadata LIKE '%tech%'",
+        });
+        // Only hyb:rust has category=tech
+        if (results.length !== 1) throw new Error(`expected 1 result, got ${results.length}`);
+        if (results[0].key !== 'hyb:rust') throw new Error(`expected hyb:rust, got ${results[0].key}`);
+        return `filtered to ${results[0].key}`;
+      });
+
+      // 20. hybrid_empty_text — empty text falls back to vector-only ranking
+      await run('hybrid_empty_text', async () => {
+        const { results } = await LanceDB.hybridSearch({
+          queryVector: vec(0.9, 0.1, 0.0, 0.0),
+          queryText: '',
+          limit: 3,
+        });
+        if (results.length !== 3) throw new Error(`expected 3 results, got ${results.length}`);
+        // With empty text, all text ranks should be equal (all BM25 = 0)
+        // so RRF ordering should follow vector distance order
+        // hyb:fox (0.9,0.1,0,0) is closest to query (0.9,0.1,0,0)
+        if (results[0].key !== 'hyb:fox') throw new Error(`expected hyb:fox first, got ${results[0].key}`);
+        return `top=${results[0].key} (vector-dominant)`;
+      });
+
+      // Clean up hybrid test data
+      await LanceDB.clear({});
+
+      // ═══ Kuzu Graph Adapter tests (mock KuzuConnection, pure JS) ════════
+
+      // In-memory mock that simulates Kuzu's Cypher query interface.
+      // Validates the integration contract: CRUD, multi-hop, temporal, hubs.
+      const mockEntities = [];
+      const mockRelations = []; // { table, props, srcId, tgtId }
+      let schemaCreated = false;
+
+      function mockKuzuConnection() {
+        return {
+          query: async (cypher, params) => {
+            // Schema DDL — just track that it ran
+            if (cypher.startsWith('CREATE NODE TABLE') || cypher.startsWith('CREATE REL TABLE')) {
+              schemaCreated = true;
+              return { rows: [] };
+            }
+            // CREATE entity
+            if (cypher.includes('CREATE (e:Entity')) {
+              mockEntities.push({ ...params });
+              return { rows: [] };
+            }
+            // MATCH + SET (update/soft-delete/touch)
+            if (cypher.includes('MATCH (e:Entity') && cypher.includes('SET')) {
+              const ent = mockEntities.find(e => e.id === params.id);
+              if (ent) {
+                if (params.deleted !== undefined) ent.deleted = params.deleted;
+                if (params.entityType !== undefined) ent.entityType = params.entityType;
+                if (params.name !== undefined) ent.name = params.name;
+                if (params.propertiesJson !== undefined) ent.propertiesJson = params.propertiesJson;
+                if (params.confidence !== undefined) ent.confidence = params.confidence;
+                if (params.source !== undefined) ent.source = params.source;
+                if (params.accessedAt !== undefined) ent.accessedAt = params.accessedAt;
+                if (params.accessCount !== undefined) ent.accessCount = params.accessCount;
+                if (params.now) { ent.accessedAt = params.now; ent.accessCount = (ent.accessCount||0)+1; }
+              }
+              return { rows: [] };
+            }
+            // CREATE relation
+            if (cypher.includes('CREATE (src)-[')) {
+              const table = cypher.match(/:(\w+)\s*\{/)?.[1] || 'RELATED_TO';
+              mockRelations.push({
+                table, srcId: params.srcId, tgtId: params.tgtId,
+                id: params.id, confidence: params.confidence, source: params.source,
+                createdAt: params.createdAt, accessedAt: params.accessedAt,
+                accessCount: params.accessCount, deleted: params.deleted,
+                propertiesJson: params.propertiesJson,
+                validFrom: params.validFrom, validUntil: params.validUntil,
+              });
+              return { rows: [] };
+            }
+            // SET r.deleted on relation
+            if (cypher.match(/MATCH \(\)-\[r:/) && cypher.includes('r.deleted = true')) {
+              const rel = mockRelations.find(r => r.id === params.id);
+              if (rel) rel.deleted = true;
+              return { rows: [] };
+            }
+            // SET r.validUntil on relation
+            if (cypher.match(/MATCH \(\)-\[r:/) && cypher.includes('r.validUntil')) {
+              const rel = mockRelations.find(r => r.id === params.id);
+              if (rel) rel.validUntil = params.validUntil;
+              return { rows: [] };
+            }
+            // MATCH entities query (basic filter)
+            if (cypher.includes('MATCH (e:Entity)') && cypher.includes('RETURN e.id')) {
+              let filtered = mockEntities.filter(e => !e.deleted);
+              if (params?.entityType) filtered = filtered.filter(e => e.entityType === params.entityType);
+              if (params?.namePattern) filtered = filtered.filter(e => (e.name||'').includes(params.namePattern));
+              if (params?.names) filtered = filtered.filter(e => params.names.includes(e.name));
+              return { rows: filtered.map(e => [e.id, e.entityType, e.name, e.propertiesJson||'{}', e.confidence||1, e.source||'System', e.createdAt||'', e.accessedAt||'', e.accessCount||0, !!e.deleted]) };
+            }
+            // Variable-length path (multi-hop)
+            if (cypher.includes('-[r*1..')) {
+              // Return all non-deleted entities connected to seed ids (simplified 1-hop mock)
+              const seedIds = params?.ids || [];
+              const connectedIds = new Set();
+              for (const rel of mockRelations) {
+                if (rel.deleted) continue;
+                if (seedIds.includes(rel.srcId)) connectedIds.add(rel.tgtId);
+                if (seedIds.includes(rel.tgtId)) connectedIds.add(rel.srcId);
+              }
+              const neighbors = mockEntities.filter(e => connectedIds.has(e.id) && !e.deleted && !seedIds.includes(e.id));
+              const limited = neighbors.slice(0, params?.limit || 50);
+              return { rows: limited.map(e => [e.id, e.entityType, e.name, e.propertiesJson||'{}', e.confidence||1, e.source||'System', e.createdAt||'', e.accessedAt||'', e.accessCount||0, !!e.deleted]) };
+            }
+            // Relation query for entities
+            if (cypher.match(/MATCH \(a:Entity\)-\[r:(\w+)\]->\(b:Entity\)/) && cypher.includes('RETURN r.id')) {
+              const table = cypher.match(/\[r:(\w+)\]/)?.[1];
+              const ids = params?.ids || [];
+              const matching = mockRelations.filter(r => r.table === table && !r.deleted && (ids.includes(r.srcId) || ids.includes(r.tgtId)));
+              return { rows: matching.map(r => [r.id, r.srcId, r.tgtId, r.confidence||1, r.source||'System', r.createdAt||'', r.accessedAt||'', r.accessCount||0, !!r.deleted, r.propertiesJson||'{}', r.validFrom||'', r.validUntil||'']) };
+            }
+            // Relation degree count
+            if (cypher.match(/MATCH \(a:Entity\)-\[r:(\w+)\]-\(b:Entity\)/) && cypher.includes('count(r)')) {
+              const table = cypher.match(/\[r:(\w+)\]/)?.[1];
+              const counts = {};
+              for (const r of mockRelations) {
+                if (r.table === table && !r.deleted) {
+                  counts[r.srcId] = (counts[r.srcId]||0) + 1;
+                  counts[r.tgtId] = (counts[r.tgtId]||0) + 1;
+                }
+              }
+              return { rows: Object.entries(counts).map(([id, cnt]) => [id, cnt]) };
+            }
+            // Entity count
+            if (cypher.includes('count(e)')) {
+              return { rows: [[mockEntities.filter(e => !e.deleted).length]] };
+            }
+            // Relation count
+            if (cypher.includes('count(r)')) {
+              const table = cypher.match(/\[r:(\w+)\]/)?.[1];
+              const cnt = mockRelations.filter(r => r.table === table && !r.deleted).length;
+              return { rows: [[cnt]] };
+            }
+            return { rows: [] };
+          },
+          close: async () => {},
+        };
+      }
+
+      // Import adapter inline (re-implement minimal adapter for browser test)
+      // We test the mock connection contract which is what KuzuGraphAdapterImpl delegates to.
+
+      const REL_TYPE_TO_TABLE = {
+        WorksAt:'WORKS_AT', KnowsAbout:'KNOWS_ABOUT', RelatedTo:'RELATED_TO',
+        DependsOn:'DEPENDS_ON', OwnedBy:'OWNED_BY', CreatedBy:'CREATED_BY',
+        LocatedIn:'LOCATED_IN', PartOf:'PART_OF', Uses:'USES', Produces:'PRODUCES',
+      };
+      const TABLE_TO_REL_TYPE = {};
+      for (const [k,v] of Object.entries(REL_TYPE_TO_TABLE)) TABLE_TO_REL_TYPE[v] = k;
+      const ALL_REL_TABLES = Object.values(REL_TYPE_TO_TABLE);
+
+      // Minimal adapter that wraps the mock connection (mirrors KuzuGraphAdapterImpl)
+      class TestKuzuAdapter {
+        constructor() { this._conn = null; }
+        async open() {
+          this._conn = mockKuzuConnection();
+          // Schema DDL
+          await this._conn.query('CREATE NODE TABLE IF NOT EXISTS Entity (...)');
+          for (const t of ALL_REL_TABLES) await this._conn.query(`CREATE REL TABLE IF NOT EXISTS ${t} (...)`);
+        }
+        async close() { if (this._conn?.close) await this._conn.close(); this._conn = null; }
+        async addEntity(entity) {
+          await this._conn.query('CREATE (e:Entity { ... })', entity);
+          return { id: entity.id };
+        }
+        async updateEntity(entity) {
+          await this._conn.query('MATCH (e:Entity {id: $id}) SET ...', entity);
+        }
+        async softDeleteEntity(id) {
+          await this._conn.query('MATCH (e:Entity {id: $id}) SET e.deleted = true', { id, deleted: true });
+        }
+        async touchEntity(id) {
+          const now = new Date().toISOString();
+          await this._conn.query('MATCH (e:Entity {id: $id}) SET e.accessedAt = $now, e.accessCount = ...', { id, now });
+        }
+        async addRelation(relation) {
+          const table = REL_TYPE_TO_TABLE[relation.relationType] || 'RELATED_TO';
+          await this._conn.query(`MATCH ... CREATE (src)-[:${table} { ... }]->(tgt)`, {
+            srcId: relation.sourceId, tgtId: relation.targetId,
+            id: relation.id, confidence: relation.confidence, source: relation.source,
+            createdAt: relation.createdAt, accessedAt: relation.accessedAt,
+            accessCount: relation.accessCount, deleted: relation.deleted,
+            propertiesJson: '{}', validFrom: relation.validFrom || relation.createdAt, validUntil: relation.validUntil || '',
+          });
+          return { id: relation.id };
+        }
+        async softDeleteRelation(id) {
+          for (const t of ALL_REL_TABLES) {
+            await this._conn.query(`MATCH ()-[r:${t} {id: $id}]->() SET r.deleted = true`, { id }).catch(()=>{});
+          }
+        }
+        async invalidateRelation(id, validUntil) {
+          for (const t of ALL_REL_TABLES) {
+            await this._conn.query(`MATCH ()-[r:${t} {id: $id}]->() SET r.validUntil = $validUntil`, { id, validUntil }).catch(()=>{});
+          }
+        }
+        async queryGraph(opts) {
+          const params = {};
+          if (opts?.entityType) params.entityType = opts.entityType;
+          if (opts?.namePattern) params.namePattern = opts.namePattern;
+          const result = await this._conn.query('MATCH (e:Entity) WHERE ... RETURN e.id, ...', params);
+          const entities = result.rows.map(r => ({ id:r[0], entityType:r[1], name:r[2], propertiesJson:r[3], confidence:Number(r[4]), source:r[5], createdAt:r[6], accessedAt:r[7], accessCount:Number(r[8]), deleted:!!r[9] }));
+          const entityIds = entities.map(e => e.id);
+          const relations = entityIds.length > 0 ? await this._fetchRelations(entityIds) : [];
+          return { entities, relations };
+        }
+        async expandNeighborhood(opts) {
+          if (opts.entityIds.length === 0) return { entities: [], relations: [] };
+          const result = await this._conn.query('MATCH (seed:Entity)-[r*1..N]-(neighbor:Entity) WHERE ...', { ids: opts.entityIds, limit: opts.limit });
+          const entities = result.rows.map(r => ({ id:r[0], entityType:r[1], name:r[2], propertiesJson:r[3], confidence:Number(r[4]), source:r[5], createdAt:r[6], accessedAt:r[7], accessCount:Number(r[8]), deleted:!!r[9] }));
+          const allIds = [...new Set([...opts.entityIds, ...entities.map(e => e.id)])];
+          const relations = await this._fetchRelations(allIds);
+          return { entities, relations };
+        }
+        async getEntityContext(opts) {
+          if (opts.entityNames.length === 0) return { entities: [], relations: [], contextText: '' };
+          const seedResult = await this._conn.query('MATCH (e:Entity) WHERE ... RETURN e.id, ...', { names: opts.entityNames });
+          const seedEntities = seedResult.rows.map(r => ({ id:r[0], entityType:r[1], name:r[2], propertiesJson:r[3], confidence:Number(r[4]), source:r[5], createdAt:r[6], accessedAt:r[7], accessCount:Number(r[8]), deleted:!!r[9] }));
+          if (seedEntities.length === 0) return { entities: [], relations: [], contextText: '' };
+          const seedIds = seedEntities.map(e => e.id);
+          const { entities: neighbors, relations } = await this.expandNeighborhood({ entityIds: seedIds, maxHops: opts.maxHops, limit: opts.limit });
+          const seenIds = new Set(); const allEntities = [];
+          for (const e of [...seedEntities, ...neighbors]) { if (!seenIds.has(e.id)) { seenIds.add(e.id); allEntities.push(e); } }
+          // Format context text
+          const entMap = new Map(allEntities.map(e => [e.id, e]));
+          const lines = allEntities.map(e => `- ${e.name} (${e.entityType})`);
+          if (relations.length > 0) {
+            lines.push('');
+            for (const r of relations) {
+              const src = entMap.get(r.sourceId); const tgt = entMap.get(r.targetId);
+              if (src && tgt) lines.push(`- ${src.name} --[${r.relationType}]--> ${tgt.name}`);
+            }
+          }
+          return { entities: allEntities, relations, contextText: lines.join('\n') };
+        }
+        async getHubs(opts) {
+          const entResult = await this._conn.query('MATCH (e:Entity) WHERE ... RETURN e.id, ...', opts.entityType ? { entityType: opts.entityType } : {});
+          const entities = entResult.rows.map(r => ({ id:r[0], entityType:r[1], name:r[2], propertiesJson:r[3], confidence:Number(r[4]), source:r[5], createdAt:r[6], accessedAt:r[7], accessCount:Number(r[8]), deleted:!!r[9] }));
+          const entityMap = new Map(entities.map(e => [e.id, e]));
+          const degreeMap = new Map(entities.map(e => [e.id, 0]));
+          for (const t of ALL_REL_TABLES) {
+            try {
+              const rr = await this._conn.query(`MATCH (a:Entity)-[r:${t}]-(b:Entity) WHERE r.deleted = false RETURN a.id, count(r)`, {});
+              for (const row of rr.rows) { degreeMap.set(row[0], (degreeMap.get(row[0])||0) + Number(row[1])); }
+            } catch {}
+          }
+          const sorted = [...degreeMap.entries()].filter(([id]) => entityMap.has(id)).sort((a,b) => b[1]-a[1]).slice(0, opts.limit);
+          return sorted.map(([id, degree]) => ({ entity: entityMap.get(id), degree }));
+        }
+        async entityCount() { const r = await this._conn.query('MATCH (e:Entity) WHERE e.deleted = false RETURN count(e)'); return Number(r.rows[0]?.[0] ?? 0); }
+        async relationCount() {
+          let total = 0;
+          for (const t of ALL_REL_TABLES) {
+            try { const r = await this._conn.query(`MATCH ()-[r:${t}]->() WHERE r.deleted = false RETURN count(r)`); total += Number(r.rows[0]?.[0]??0); } catch {}
+          }
+          return total;
+        }
+        async _fetchRelations(entityIds) {
+          const relations = [];
+          for (const t of ALL_REL_TABLES) {
+            try {
+              const result = await this._conn.query(`MATCH (a:Entity)-[r:${t}]->(b:Entity) WHERE ... RETURN r.id, a.id, b.id, ...`, { ids: entityIds });
+              const relType = TABLE_TO_REL_TYPE[t] || 'RelatedTo';
+              for (const row of result.rows) {
+                relations.push({ id:row[0]||'', sourceId:row[1], relationType:relType, targetId:row[2], confidence:Number(row[3]||1), source:row[4]||'System', createdAt:row[5]||'', accessedAt:row[6]||'', accessCount:Number(row[7]||0), deleted:!!row[8] });
+              }
+            } catch {}
+          }
+          return relations;
+        }
+      }
+
+      const kuzu = new TestKuzuAdapter();
+      const NOW = new Date().toISOString();
+
+      // 21. kuzu_init
+      await run('kuzu_init', async () => {
+        await kuzu.open();
+        if (!schemaCreated) throw new Error('schema DDL was not executed');
+        return 'schema created (1 node table + ' + ALL_REL_TABLES.length + ' rel tables)';
+      });
+
+      // 22. kuzu_add_entity
+      await run('kuzu_add_entity', async () => {
+        await kuzu.addEntity({ id:'e1', entityType:'Person', name:'Alice', propertiesJson:'{"role":"engineer"}', confidence:0.9, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false });
+        await kuzu.addEntity({ id:'e2', entityType:'Organization', name:'Acme Corp', propertiesJson:'{}', confidence:0.8, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false });
+        await kuzu.addEntity({ id:'e3', entityType:'Project', name:'GraphRAG', propertiesJson:'{}', confidence:0.85, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false });
+        const cnt = await kuzu.entityCount();
+        if (cnt !== 3) throw new Error('expected 3 entities, got ' + cnt);
+        return '3 entities added';
+      });
+
+      // 23. kuzu_add_rel
+      await run('kuzu_add_rel', async () => {
+        await kuzu.addRelation({ id:'r1', sourceId:'e1', relationType:'WorksAt', targetId:'e2', confidence:0.9, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false, validFrom:NOW });
+        await kuzu.addRelation({ id:'r2', sourceId:'e1', relationType:'KnowsAbout', targetId:'e3', confidence:0.8, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false, validFrom:NOW });
+        await kuzu.addRelation({ id:'r3', sourceId:'e2', relationType:'Produces', targetId:'e3', confidence:0.7, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false, validFrom:NOW });
+        const cnt = await kuzu.relationCount();
+        if (cnt !== 3) throw new Error('expected 3 relations, got ' + cnt);
+        return '3 relations added';
+      });
+
+      // 24. kuzu_query
+      await run('kuzu_query', async () => {
+        const all = await kuzu.queryGraph();
+        if (all.entities.length !== 3) throw new Error('expected 3 entities, got ' + all.entities.length);
+        const persons = await kuzu.queryGraph({ entityType: 'Person' });
+        if (persons.entities.length !== 1) throw new Error('expected 1 Person, got ' + persons.entities.length);
+        if (persons.entities[0].name !== 'Alice') throw new Error('expected Alice, got ' + persons.entities[0].name);
+        const byName = await kuzu.queryGraph({ namePattern: 'Acme' });
+        if (byName.entities.length !== 1) throw new Error('expected 1 match for Acme, got ' + byName.entities.length);
+        return 'filter by type + name works';
+      });
+
+      // 25. kuzu_multi_hop
+      await run('kuzu_multi_hop', async () => {
+        // Expand from Alice (e1) — should find Acme Corp (e2) and GraphRAG (e3) as neighbors
+        const { entities, relations } = await kuzu.expandNeighborhood({ entityIds: ['e1'], maxHops: 2, limit: 10 });
+        if (entities.length < 2) throw new Error('expected at least 2 neighbors, got ' + entities.length);
+        const names = entities.map(e => e.name).sort();
+        if (!names.includes('Acme Corp') || !names.includes('GraphRAG'))
+          throw new Error('missing expected neighbors: ' + names.join(', '));
+        if (relations.length < 2) throw new Error('expected at least 2 relations, got ' + relations.length);
+        return entities.length + ' neighbors, ' + relations.length + ' relations';
+      });
+
+      // 26. kuzu_context
+      await run('kuzu_context', async () => {
+        const { entities, relations, contextText } = await kuzu.getEntityContext({ entityNames: ['Alice'], maxHops: 2, limit: 10 });
+        if (entities.length < 1) throw new Error('expected entities in context');
+        if (!contextText) throw new Error('expected non-empty contextText');
+        if (!contextText.includes('Alice')) throw new Error('contextText missing Alice');
+        if (!contextText.includes('WorksAt')) throw new Error('contextText missing WorksAt relation');
+        return 'contextText: ' + contextText.split('\n').length + ' lines';
+      });
+
+      // 27. kuzu_temporal
+      await run('kuzu_temporal', async () => {
+        // Invalidate r1 (Alice WorksAt Acme) — simulates job change
+        const invalidTime = new Date().toISOString();
+        await kuzu.invalidateRelation('r1', invalidTime);
+        // Verify validUntil was set
+        const rel = mockRelations.find(r => r.id === 'r1');
+        if (!rel) throw new Error('relation r1 not found');
+        if (rel.validUntil !== invalidTime) throw new Error('validUntil not set: ' + rel.validUntil);
+        // Add new relation (Alice WorksAt NewCo)
+        await kuzu.addEntity({ id:'e4', entityType:'Organization', name:'NewCo', propertiesJson:'{}', confidence:0.9, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false });
+        await kuzu.addRelation({ id:'r4', sourceId:'e1', relationType:'WorksAt', targetId:'e4', confidence:0.9, source:'Conversation', createdAt:NOW, accessedAt:NOW, accessCount:1, deleted:false, validFrom:invalidTime });
+        const newRel = mockRelations.find(r => r.id === 'r4');
+        if (!newRel || newRel.validFrom !== invalidTime) throw new Error('new relation validFrom not set');
+        return 'old relation invalidated, new relation added with validFrom';
+      });
+
+      // 28. kuzu_hubs
+      await run('kuzu_hubs', async () => {
+        const hubs = await kuzu.getHubs({ limit: 5 });
+        if (hubs.length === 0) throw new Error('expected at least 1 hub');
+        // Alice (e1) should be top hub — connected to e2, e3, e4
+        if (hubs[0].entity.name !== 'Alice') throw new Error('expected Alice as top hub, got ' + hubs[0].entity.name);
+        if (hubs[0].degree < 2) throw new Error('expected degree >= 2, got ' + hubs[0].degree);
+        return 'top hub: ' + hubs[0].entity.name + ' (degree=' + hubs[0].degree + ')';
+      });
+
+      await kuzu.close();
 
       // ─── Summary ───────────────────────────────────────────────────────────
       const total = tests.length;

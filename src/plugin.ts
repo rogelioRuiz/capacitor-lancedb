@@ -1,6 +1,6 @@
 import { registerPlugin, WebPlugin } from '@capacitor/core'
 
-import type { LanceDBPlugin, SearchResult } from './definitions'
+import type { HybridSearchResult, LanceDBPlugin, SearchResult } from './definitions'
 
 class LanceDBWeb extends WebPlugin implements LanceDBPlugin {
   async open(): Promise<void> {
@@ -20,6 +20,9 @@ class LanceDBWeb extends WebPlugin implements LanceDBPlugin {
     throw this.unavailable('LanceDB is only available on native platforms.')
   }
   async clear(): Promise<void> {
+    throw this.unavailable('LanceDB is only available on native platforms.')
+  }
+  async hybridSearch(): Promise<{ results: HybridSearchResult[] }> {
     throw this.unavailable('LanceDB is only available on native platforms.')
   }
   // Deprecated memory-prefixed aliases

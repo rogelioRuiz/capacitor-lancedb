@@ -733,6 +733,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -761,6 +763,8 @@ internal interface UniffiLib : Library {
     fun uniffi_lancedb_ffi_fn_method_lancedbhandle_clear(`ptr`: Pointer,`collection`: RustBuffer.ByValue,
     ): Long
     fun uniffi_lancedb_ffi_fn_method_lancedbhandle_delete(`ptr`: Pointer,`key`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_lancedb_ffi_fn_method_lancedbhandle_hybrid_search(`ptr`: Pointer,`queryVector`: RustBuffer.ByValue,`queryText`: RustBuffer.ByValue,`limit`: Int,`filter`: RustBuffer.ByValue,`rrfK`: RustBuffer.ByValue,`vectorLimit`: RustBuffer.ByValue,
     ): Long
     fun uniffi_lancedb_ffi_fn_method_lancedbhandle_list(`ptr`: Pointer,`prefix`: RustBuffer.ByValue,`limit`: RustBuffer.ByValue,
     ): Long
@@ -884,6 +888,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_lancedb_ffi_checksum_method_lancedbhandle_delete(
     ): Short
+    fun uniffi_lancedb_ffi_checksum_method_lancedbhandle_hybrid_search(
+    ): Short
     fun uniffi_lancedb_ffi_checksum_method_lancedbhandle_list(
     ): Short
     fun uniffi_lancedb_ffi_checksum_method_lancedbhandle_search(
@@ -913,6 +919,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_lancedb_ffi_checksum_method_lancedbhandle_delete() != 18738.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_lancedb_ffi_checksum_method_lancedbhandle_hybrid_search() != 51031.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_lancedb_ffi_checksum_method_lancedbhandle_list() != 30004.toShort()) {
@@ -1338,6 +1347,17 @@ public interface LanceDbHandleInterface {
     suspend fun `delete`(`key`: kotlin.String)
     
     /**
+     * Hybrid search combining vector ANN and BM25 text scoring via RRF fusion.
+     * `query_vector`: embedding for ANN search.
+     * `query_text`: text query for BM25 scoring.
+     * `limit`: number of results to return.
+     * `filter`: optional SQL-like predicate.
+     * `rrf_k`: RRF constant (default 60).
+     * `vector_limit`: number of ANN candidates to over-fetch (default limit * 4).
+     */
+    suspend fun `hybridSearch`(`queryVector`: List<kotlin.Float>, `queryText`: kotlin.String, `limit`: kotlin.UInt, `filter`: kotlin.String?, `rrfK`: kotlin.UInt?, `vectorLimit`: kotlin.UInt?): List<HybridSearchResult>
+    
+    /**
      * List memory keys, optionally filtered by prefix.
      */
     suspend fun `list`(`prefix`: kotlin.String?, `limit`: kotlin.UInt?): List<kotlin.String>
@@ -1489,6 +1509,36 @@ open class LanceDbHandle: Disposable, AutoCloseable, LanceDbHandleInterface {
 
     
     /**
+     * Hybrid search combining vector ANN and BM25 text scoring via RRF fusion.
+     * `query_vector`: embedding for ANN search.
+     * `query_text`: text query for BM25 scoring.
+     * `limit`: number of results to return.
+     * `filter`: optional SQL-like predicate.
+     * `rrf_k`: RRF constant (default 60).
+     * `vector_limit`: number of ANN candidates to over-fetch (default limit * 4).
+     */
+    @Throws(LanceException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `hybridSearch`(`queryVector`: List<kotlin.Float>, `queryText`: kotlin.String, `limit`: kotlin.UInt, `filter`: kotlin.String?, `rrfK`: kotlin.UInt?, `vectorLimit`: kotlin.UInt?) : List<HybridSearchResult> {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_lancedb_ffi_fn_method_lancedbhandle_hybrid_search(
+                thisPtr,
+                FfiConverterSequenceFloat.lower(`queryVector`),FfiConverterString.lower(`queryText`),FfiConverterUInt.lower(`limit`),FfiConverterOptionalString.lower(`filter`),FfiConverterOptionalUInt.lower(`rrfK`),FfiConverterOptionalUInt.lower(`vectorLimit`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_lancedb_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_lancedb_ffi_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_lancedb_ffi_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeHybridSearchResult.lift(it) },
+        // Error FFI converter
+        LanceException.ErrorHandler,
+    )
+    }
+
+    
+    /**
      * List memory keys, optionally filtered by prefix.
      */
     @Throws(LanceException::class)
@@ -1620,6 +1670,54 @@ public object FfiConverterTypeLanceDBHandle: FfiConverter<LanceDbHandle, Pointer
 
 
 
+data class HybridSearchResult (
+    var `key`: kotlin.String, 
+    var `text`: kotlin.String, 
+    var `vectorRank`: kotlin.UInt, 
+    var `textRank`: kotlin.UInt, 
+    var `rrfScore`: kotlin.Double, 
+    var `metadata`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHybridSearchResult: FfiConverterRustBuffer<HybridSearchResult> {
+    override fun read(buf: ByteBuffer): HybridSearchResult {
+        return HybridSearchResult(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HybridSearchResult) = (
+            FfiConverterString.allocationSize(value.`key`) +
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterUInt.allocationSize(value.`vectorRank`) +
+            FfiConverterUInt.allocationSize(value.`textRank`) +
+            FfiConverterDouble.allocationSize(value.`rrfScore`) +
+            FfiConverterOptionalString.allocationSize(value.`metadata`)
+    )
+
+    override fun write(value: HybridSearchResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`key`, buf)
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterUInt.write(value.`vectorRank`, buf)
+            FfiConverterUInt.write(value.`textRank`, buf)
+            FfiConverterDouble.write(value.`rrfScore`, buf)
+            FfiConverterOptionalString.write(value.`metadata`, buf)
+    }
+}
+
+
+
 data class SearchResult (
     var `key`: kotlin.String, 
     var `text`: kotlin.String, 
@@ -1666,50 +1764,50 @@ sealed class LanceException: kotlin.Exception() {
     
     class ConnectionFailed(
         
-        val msg: kotlin.String
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
-
+    
     class TableException(
-
-        val msg: kotlin.String
+        
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
-
+    
     class QueryException(
-
-        val msg: kotlin.String
+        
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
-
+    
     class InsertException(
-
-        val msg: kotlin.String
+        
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
-
+    
     class DeleteException(
-
-        val msg: kotlin.String
+        
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
-
+    
     class SchemaException(
-
-        val msg: kotlin.String
+        
+        val `msg`: kotlin.String
         ) : LanceException() {
         override val message
-            get() = "message=${ msg }"
+            get() = "msg=${ `msg` }"
     }
     
 
@@ -1755,32 +1853,32 @@ public object FfiConverterTypeLanceError : FfiConverterRustBuffer<LanceException
             is LanceException.ConnectionFailed -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
             is LanceException.TableException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
             is LanceException.QueryException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
             is LanceException.InsertException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
             is LanceException.DeleteException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
             is LanceException.SchemaException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.msg)
+                + FfiConverterString.allocationSize(value.`msg`)
             )
         }
     }
@@ -1789,32 +1887,32 @@ public object FfiConverterTypeLanceError : FfiConverterRustBuffer<LanceException
         when(value) {
             is LanceException.ConnectionFailed -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is LanceException.TableException -> {
                 buf.putInt(2)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is LanceException.QueryException -> {
                 buf.putInt(3)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is LanceException.InsertException -> {
                 buf.putInt(4)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is LanceException.DeleteException -> {
                 buf.putInt(5)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is LanceException.SchemaException -> {
                 buf.putInt(6)
-                FfiConverterString.write(value.msg, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -1938,6 +2036,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHybridSearchResult: FfiConverterRustBuffer<List<HybridSearchResult>> {
+    override fun read(buf: ByteBuffer): List<HybridSearchResult> {
+        val len = buf.getInt()
+        return List<HybridSearchResult>(len) {
+            FfiConverterTypeHybridSearchResult.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HybridSearchResult>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHybridSearchResult.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HybridSearchResult>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHybridSearchResult.write(it, buf)
         }
     }
 }

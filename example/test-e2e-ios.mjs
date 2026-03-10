@@ -13,6 +13,7 @@
  */
 
 import { execSync } from 'child_process'
+import fs from 'fs'
 import http from 'http'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -22,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BUNDLE_ID    = 'io.t6x.lancedb.test'
 const RUNNER_PORT  = 8099
-const TOTAL_TESTS  = 16
+const TOTAL_TESTS  = 28
 const TIMEOUT_MS   = 120_000
 
 // ─── Test runner state ────────────────────────────────────────────────────────
@@ -141,6 +142,20 @@ const TEST_NAMES = {
   gen_list:   'list() — generic list keys',
   gen_delete: 'delete() — generic delete',
   gen_clear:  'clear() — generic drop all',
+  // Hybrid search (RRF + BM25)
+  hybrid_basic:      'hybridSearch() — RRF-ranked results',
+  hybrid_text_boost: 'hybridSearch() — text match boosts ranking',
+  hybrid_filter:     'hybridSearch() — filter excludes items',
+  hybrid_empty_text: 'hybridSearch() — empty text falls back to vector',
+  // Kuzu Graph Adapter (mock KuzuConnection)
+  kuzu_init:       'KuzuGraphAdapter — open + schema init',
+  kuzu_add_entity: 'KuzuGraphAdapter — add entity',
+  kuzu_add_rel:    'KuzuGraphAdapter — add relation',
+  kuzu_query:      'KuzuGraphAdapter — query with filters',
+  kuzu_multi_hop:  'KuzuGraphAdapter — multi-hop expansion',
+  kuzu_context:    'KuzuGraphAdapter — entity context text',
+  kuzu_temporal:   'KuzuGraphAdapter — temporal invalidation',
+  kuzu_hubs:       'KuzuGraphAdapter — hub discovery',
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -187,9 +202,10 @@ async function main() {
   try {
     console.log('  → Building (xcodebuild)...')
     execSync(
-      `xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator ` +
-      `-destination "platform=iOS Simulator,id=${udid}" -configuration Debug build`,
-      { cwd: path.join(__dirname, 'ios/App'), encoding: 'utf8', timeout: 180000,
+      `xcodebuild -scheme App -sdk iphonesimulator ` +
+      `-destination "platform=iOS Simulator,id=${udid}" -configuration Debug ` +
+      `-derivedDataPath build build`,
+      { cwd: path.join(__dirname, 'ios/App'), encoding: 'utf8', timeout: 300000,
         stdio: ['ignore', 'pipe', 'pipe'] }
     )
     pass('1.3 xcodebuild succeeded')
@@ -203,13 +219,14 @@ async function main() {
   // 1.4 Install app (don't launch yet — server must be up first)
   let appPath
   try {
-    // Find the .app in DerivedData
+    // Find the .app in local build dir or DerivedData
+    const localBuild = path.join(__dirname, 'ios/App/build/Build/Products/Debug-iphonesimulator/App.app')
     const ddOut = execSync(
       `find ~/Library/Developer/Xcode/DerivedData -name "App.app" -path "*/Debug-iphonesimulator/*" -not -path "*PlugIns*" 2>/dev/null | head -1`,
       { encoding: 'utf8', shell: true }
     ).trim()
-    appPath = ddOut
-    if (!appPath) throw new Error('App.app not found in DerivedData')
+    appPath = fs.existsSync(localBuild) ? localBuild : ddOut
+    if (!appPath) throw new Error('App.app not found in build dir or DerivedData')
 
     simctl(`install ${udid} "${appPath}"`)
     try { simctl(`terminate ${udid} ${BUNDLE_ID}`) } catch {}
@@ -252,7 +269,7 @@ async function main() {
   // ─── Section 3: Plugin API Results ───────────────────────────────────────
   logSection('3 — Plugin API Results')
 
-  const ORDER = ['open','store1','store2','upsert','search','list','prefix','delete','after_del','clear','empty','gen_store','gen_search','gen_list','gen_delete','gen_clear']
+  const ORDER = ['open','store1','store2','upsert','search','list','prefix','delete','after_del','clear','empty','gen_store','gen_search','gen_list','gen_delete','gen_clear','hybrid_basic','hybrid_text_boost','hybrid_filter','hybrid_empty_text','kuzu_init','kuzu_add_entity','kuzu_add_rel','kuzu_query','kuzu_multi_hop','kuzu_context','kuzu_temporal','kuzu_hubs']
   let num = 1
 
   for (const id of ORDER) {

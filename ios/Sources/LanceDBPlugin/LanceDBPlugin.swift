@@ -13,6 +13,7 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "delete", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hybridSearch", returnType: CAPPluginReturnPromise),
         // Deprecated memory-prefixed aliases
         CAPPluginMethod(name: "memoryStore", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "memorySearch", returnType: CAPPluginReturnPromise),
@@ -74,6 +75,49 @@ public class LanceDBPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func delete(_ call: CAPPluginCall) { doDelete(call) }
     @objc func list(_ call: CAPPluginCall) { doList(call) }
     @objc func clear(_ call: CAPPluginCall) { doClear(call) }
+
+    @objc func hybridSearch(_ call: CAPPluginCall) {
+        guard let handle else { return call.reject("LanceDB not initialized — call open() first") }
+        guard let queryArr = call.getArray("queryVector") as? [NSNumber] else {
+            return call.reject("queryVector is required")
+        }
+        guard let queryText = call.getString("queryText") else {
+            return call.reject("queryText is required")
+        }
+
+        let queryVector = queryArr.map { $0.floatValue }
+        let limit = UInt32(call.getInt("limit") ?? 5)
+        let filter = call.getString("filter")
+        let rrfK = call.getInt("rrfK").map { UInt32($0) }
+        let vectorLimit = call.getInt("vectorLimit").map { UInt32($0) }
+
+        Task {
+            do {
+                let results = try await handle.hybridSearch(
+                    queryVector: queryVector, queryText: queryText,
+                    limit: limit, filter: filter,
+                    rrfK: rrfK, vectorLimit: vectorLimit
+                )
+                var arr: [[String: Any]] = []
+                for r in results {
+                    var obj: [String: Any] = [
+                        "key": r.key,
+                        "text": r.text,
+                        "vectorRank": r.vectorRank,
+                        "textRank": r.textRank,
+                        "rrfScore": r.rrfScore
+                    ]
+                    if let meta = r.metadata {
+                        obj["metadata"] = meta
+                    }
+                    arr.append(obj)
+                }
+                call.resolve(["results": arr])
+            } catch {
+                call.reject("hybridSearch failed: \(error.localizedDescription)")
+            }
+        }
+    }
 
     // ── Deprecated memory-prefixed aliases ─────────────────────
 

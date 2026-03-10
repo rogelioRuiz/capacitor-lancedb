@@ -61,6 +61,48 @@ class LanceDBPlugin : Plugin() {
     @PluginMethod
     fun clear(call: PluginCall) { doClear(call) }
 
+    @PluginMethod
+    fun hybridSearch(call: PluginCall) {
+        val h = handle ?: return call.reject("LanceDB not initialized — call open() first")
+        val queryVectorArr = call.getArray("queryVector")
+            ?: return call.reject("queryVector is required")
+        val queryText = call.getString("queryText")
+            ?: return call.reject("queryText is required")
+        val limit = call.getInt("limit", 5) ?: 5
+        val filter = call.getString("filter")
+        val rrfK = call.getInt("rrfK")
+        val vectorLimit = call.getInt("vectorLimit")
+
+        val queryVector = jsonArrayToFloatList(queryVectorArr)
+
+        scope.launch {
+            try {
+                val results = h.hybridSearch(
+                    queryVector, queryText, limit.toUInt(), filter,
+                    rrfK?.toUInt(), vectorLimit?.toUInt()
+                )
+                val arr = JSArray()
+                for (r in results) {
+                    val obj = JSObject()
+                    obj.put("key", r.key)
+                    obj.put("text", r.text)
+                    obj.put("vectorRank", r.vectorRank.toInt())
+                    obj.put("textRank", r.textRank.toInt())
+                    obj.put("rrfScore", r.rrfScore)
+                    if (r.metadata != null) {
+                        obj.put("metadata", r.metadata)
+                    }
+                    arr.put(obj)
+                }
+                val ret = JSObject()
+                ret.put("results", arr)
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject("hybridSearch failed: ${e.message}", e)
+            }
+        }
+    }
+
     // ── Deprecated memory-prefixed aliases ─────────────────────
 
     @Deprecated("Use store() instead")

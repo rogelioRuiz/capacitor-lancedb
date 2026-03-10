@@ -5,6 +5,15 @@ export interface SearchResult {
   metadata?: string
 }
 
+export interface HybridSearchResult {
+  key: string
+  text: string
+  vectorRank: number
+  textRank: number
+  rrfScore: number
+  metadata?: string
+}
+
 export interface LanceDBPlugin {
   /**
    * Open or create a LanceDB database.
@@ -38,6 +47,18 @@ export interface LanceDBPlugin {
    * Drop all data from the table.
    */
   clear(options?: { collection?: string }): Promise<void>
+
+  /**
+   * Hybrid search combining vector ANN with BM25 text scoring via RRF fusion.
+   */
+  hybridSearch(options: {
+    queryVector: number[]
+    queryText: string
+    limit: number
+    filter?: string
+    rrfK?: number
+    vectorLimit?: number
+  }): Promise<{ results: HybridSearchResult[] }>
 
   // ── Deprecated memory-prefixed aliases ───────────────────────
 

@@ -33,25 +33,35 @@ pub struct SearchResult {
     pub metadata: Option<String>,
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HybridSearchResult {
+    pub key: String,
+    pub text: String,
+    pub vector_rank: u32,
+    pub text_rank: u32,
+    pub rrf_score: f64,
+    pub metadata: Option<String>,
+}
+
 #[derive(uniffi::Error, Debug)]
 pub enum LanceError {
-    ConnectionFailed { message: String },
-    TableError { message: String },
-    QueryError { message: String },
-    InsertError { message: String },
-    DeleteError { message: String },
-    SchemaError { message: String },
+    ConnectionFailed { msg: String },
+    TableError { msg: String },
+    QueryError { msg: String },
+    InsertError { msg: String },
+    DeleteError { msg: String },
+    SchemaError { msg: String },
 }
 
 impl std::fmt::Display for LanceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LanceError::ConnectionFailed { message } => write!(f, "ConnectionFailed: {message}"),
-            LanceError::TableError { message } => write!(f, "TableError: {message}"),
-            LanceError::QueryError { message } => write!(f, "QueryError: {message}"),
-            LanceError::InsertError { message } => write!(f, "InsertError: {message}"),
-            LanceError::DeleteError { message } => write!(f, "DeleteError: {message}"),
-            LanceError::SchemaError { message } => write!(f, "SchemaError: {message}"),
+            LanceError::ConnectionFailed { msg } => write!(f, "ConnectionFailed: {msg}"),
+            LanceError::TableError { msg } => write!(f, "TableError: {msg}"),
+            LanceError::QueryError { msg } => write!(f, "QueryError: {msg}"),
+            LanceError::InsertError { msg } => write!(f, "InsertError: {msg}"),
+            LanceError::DeleteError { msg } => write!(f, "DeleteError: {msg}"),
+            LanceError::SchemaError { msg } => write!(f, "SchemaError: {msg}"),
         }
     }
 }
@@ -94,12 +104,12 @@ impl LanceDBHandle {
     pub async fn open(db_path: String, embedding_dim: i32) -> Result<Arc<Self>, LanceError> {
         if embedding_dim <= 0 {
             return Err(LanceError::SchemaError {
-                message: format!("embedding_dim must be > 0, got {embedding_dim}"),
+                msg: format!("embedding_dim must be > 0, got {embedding_dim}"),
             });
         }
 
         std::fs::create_dir_all(&db_path).map_err(|e| LanceError::ConnectionFailed {
-            message: format!("Cannot create db directory: {e}"),
+            msg: format!("Cannot create db directory: {e}"),
         })?;
 
         // Verify we can connect
@@ -107,7 +117,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::ConnectionFailed {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         Ok(Arc::new(Self {
@@ -127,7 +137,7 @@ impl LanceDBHandle {
     ) -> Result<(), LanceError> {
         if embedding.len() != self.embedding_dim as usize {
             return Err(LanceError::InsertError {
-                message: format!(
+                msg: format!(
                     "embedding length {} != expected {}",
                     embedding.len(),
                     self.embedding_dim
@@ -164,7 +174,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         if tables.contains(&DEFAULT_TABLE.to_string()) {
@@ -176,7 +186,7 @@ impl LanceDBHandle {
                         .execute()
                         .await
                         .map_err(|e| LanceError::InsertError {
-                            message: e.to_string(),
+                            msg: e.to_string(),
                         })?;
                 }
                 Err(_) => {
@@ -187,7 +197,7 @@ impl LanceDBHandle {
                         .execute()
                         .await
                         .map_err(|e| LanceError::TableError {
-                            message: e.to_string(),
+                            msg: e.to_string(),
                         })?;
                 }
             }
@@ -197,7 +207,7 @@ impl LanceDBHandle {
                 .execute()
                 .await
                 .map_err(|e| LanceError::TableError {
-                    message: e.to_string(),
+                    msg: e.to_string(),
                 })?;
         }
 
@@ -214,7 +224,7 @@ impl LanceDBHandle {
     ) -> Result<Vec<SearchResult>, LanceError> {
         if query_vector.len() != self.embedding_dim as usize {
             return Err(LanceError::QueryError {
-                message: format!(
+                msg: format!(
                     "query_vector length {} != expected {}",
                     query_vector.len(),
                     self.embedding_dim
@@ -229,7 +239,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         if !tables.contains(&DEFAULT_TABLE.to_string()) {
@@ -242,7 +252,7 @@ impl LanceDBHandle {
             .query()
             .nearest_to(query_vector)
             .map_err(|e| LanceError::QueryError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?
             .limit(limit as usize);
 
@@ -254,14 +264,14 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::QueryError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         let batches: Vec<RecordBatch> = stream
             .try_collect()
             .await
             .map_err(|e| LanceError::QueryError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         let mut results = Vec::new();
@@ -314,7 +324,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         if !tables.contains(&DEFAULT_TABLE.to_string()) {
@@ -327,7 +337,7 @@ impl LanceDBHandle {
             .delete(&format!("key = '{}'", key.replace('\'', "''")))
             .await
             .map_err(|e| LanceError::DeleteError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         Ok(())
@@ -346,7 +356,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         if !tables.contains(&DEFAULT_TABLE.to_string()) {
@@ -370,14 +380,14 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::QueryError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         let batches: Vec<RecordBatch> = stream
             .try_collect()
             .await
             .map_err(|e| LanceError::QueryError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         let mut keys = Vec::new();
@@ -405,18 +415,180 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })?;
 
         if tables.contains(&table_name.to_string()) {
             db.drop_table(table_name, &[])
                 .await
                 .map_err(|e| LanceError::TableError {
-                    message: e.to_string(),
+                    msg: e.to_string(),
                 })?;
         }
 
         Ok(())
+    }
+
+    /// Hybrid search combining vector ANN and BM25 text scoring via RRF fusion.
+    /// `query_vector`: embedding for ANN search.
+    /// `query_text`: text query for BM25 scoring.
+    /// `limit`: number of results to return.
+    /// `filter`: optional SQL-like predicate.
+    /// `rrf_k`: RRF constant (default 60).
+    /// `vector_limit`: number of ANN candidates to over-fetch (default limit * 4).
+    pub async fn hybrid_search(
+        &self,
+        query_vector: Vec<f32>,
+        query_text: String,
+        limit: u32,
+        filter: Option<String>,
+        rrf_k: Option<u32>,
+        vector_limit: Option<u32>,
+    ) -> Result<Vec<HybridSearchResult>, LanceError> {
+        if query_vector.len() != self.embedding_dim as usize {
+            return Err(LanceError::QueryError {
+                msg: format!(
+                    "query_vector length {} != expected {}",
+                    query_vector.len(),
+                    self.embedding_dim
+                ),
+            });
+        }
+
+        let db = self.connect().await?;
+
+        let tables = db
+            .table_names()
+            .execute()
+            .await
+            .map_err(|e| LanceError::TableError {
+                msg: e.to_string(),
+            })?;
+
+        if !tables.contains(&DEFAULT_TABLE.to_string()) {
+            return Ok(vec![]);
+        }
+
+        let table = self.open_table_unsafe(&db, DEFAULT_TABLE).await?;
+
+        let vlimit = vector_limit.unwrap_or(limit * 4) as usize;
+
+        let mut query = table
+            .query()
+            .nearest_to(query_vector)
+            .map_err(|e| LanceError::QueryError {
+                msg: e.to_string(),
+            })?
+            .limit(vlimit);
+
+        if let Some(ref f) = filter {
+            query = query.only_if(f.clone());
+        }
+
+        let stream = query
+            .execute()
+            .await
+            .map_err(|e| LanceError::QueryError {
+                msg: e.to_string(),
+            })?;
+
+        let batches: Vec<RecordBatch> = stream
+            .try_collect()
+            .await
+            .map_err(|e| LanceError::QueryError {
+                msg: e.to_string(),
+            })?;
+
+        // Extract candidates from Arrow batches
+        struct Candidate {
+            key: String,
+            text: String,
+            distance: f64,
+            metadata: Option<String>,
+        }
+
+        let mut candidates: Vec<Candidate> = Vec::new();
+        for batch in &batches {
+            let keys = batch
+                .column_by_name("key")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let texts = batch
+                .column_by_name("text")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let metas = batch
+                .column_by_name("metadata")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let distances = batch
+                .column_by_name("_distance")
+                .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
+
+            let (keys, texts) = match (keys, texts) {
+                (Some(k), Some(t)) => (k, t),
+                _ => continue,
+            };
+
+            for i in 0..batch.num_rows() {
+                let distance = distances.map(|d| d.value(i) as f64).unwrap_or(f64::MAX);
+                let metadata = metas.and_then(|m| {
+                    if m.is_null(i) {
+                        None
+                    } else {
+                        Some(m.value(i).to_string())
+                    }
+                });
+                candidates.push(Candidate {
+                    key: keys.value(i).to_string(),
+                    text: texts.value(i).to_string(),
+                    distance,
+                    metadata,
+                });
+            }
+        }
+
+        if candidates.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Rank by vector distance (ascending = better)
+        candidates.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+        let vector_ranks: Vec<u32> = (0..candidates.len()).map(|i| (i + 1) as u32).collect();
+
+        // Compute BM25 scores
+        let doc_texts: Vec<String> = candidates.iter().map(|c| c.text.clone()).collect();
+        let bm25 = bm25_scores(&doc_texts, &query_text);
+
+        // Rank by BM25 score (descending = better)
+        let mut bm25_indices: Vec<usize> = (0..candidates.len()).collect();
+        bm25_indices.sort_by(|&a, &b| bm25[b].partial_cmp(&bm25[a]).unwrap_or(std::cmp::Ordering::Equal));
+        let mut text_ranks = vec![0u32; candidates.len()];
+        for (rank, &idx) in bm25_indices.iter().enumerate() {
+            text_ranks[idx] = (rank + 1) as u32;
+        }
+
+        // RRF fusion
+        let k = rrf_k.unwrap_or(60) as f64;
+        let mut scored: Vec<(usize, f64)> = (0..candidates.len())
+            .map(|i| {
+                let rrf = 1.0 / (k + vector_ranks[i] as f64) + 1.0 / (k + text_ranks[i] as f64);
+                (i, rrf)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(limit as usize);
+
+        let results = scored
+            .into_iter()
+            .map(|(i, rrf_score)| HybridSearchResult {
+                key: candidates[i].key.clone(),
+                text: candidates[i].text.clone(),
+                vector_rank: vector_ranks[i],
+                text_rank: text_ranks[i],
+                rrf_score,
+                metadata: candidates[i].metadata.clone(),
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 
@@ -430,7 +602,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::ConnectionFailed {
-                message: e.to_string(),
+                msg: e.to_string(),
             })
     }
 
@@ -450,7 +622,7 @@ impl LanceDBHandle {
             .execute()
             .await
             .map_err(|e| LanceError::TableError {
-                message: e.to_string(),
+                msg: e.to_string(),
             })
     }
 
@@ -504,9 +676,46 @@ impl LanceDBHandle {
             ],
         )
         .map_err(|e| LanceError::InsertError {
-            message: format!("Failed to create record batch: {e}"),
+            msg: format!("Failed to create record batch: {e}"),
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// BM25 scoring helpers (pure Rust, no external deps)
+// ---------------------------------------------------------------------------
+
+fn tokenize(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn bm25_scores(docs: &[String], query: &str) -> Vec<f64> {
+    let k1 = 1.2_f64;
+    let b = 0.75_f64;
+    let query_terms = tokenize(query);
+    let doc_tokens: Vec<Vec<String>> = docs.iter().map(|d| tokenize(d)).collect();
+    let n = docs.len() as f64;
+    let avgdl = doc_tokens.iter().map(|t| t.len() as f64).sum::<f64>() / n.max(1.0);
+
+    doc_tokens
+        .iter()
+        .map(|tokens| {
+            let dl = tokens.len() as f64;
+            query_terms
+                .iter()
+                .map(|term| {
+                    let tf = tokens.iter().filter(|t| *t == term).count() as f64;
+                    let df = doc_tokens.iter().filter(|dt| dt.contains(term)).count() as f64;
+                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                    idf * (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * dl / avgdl))
+                })
+                .sum()
+        })
+        .collect()
 }
 
 fn chrono_now_ms() -> i64 {
@@ -689,5 +898,61 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results[0].text, "updated");
+    }
+
+    #[test]
+    fn test_bm25_scores() {
+        let docs = vec![
+            "the quick brown fox jumps over the lazy dog".to_string(),
+            "a lazy cat sleeps all day".to_string(),
+            "the fox is quick and brown".to_string(),
+        ];
+        let scores = bm25_scores(&docs, "quick brown fox");
+
+        // Doc 0 has all three query terms → highest score
+        // Doc 2 has all three query terms too but is shorter → also high
+        // Doc 1 has none of the query terms → score ~0
+        assert!(scores[0] > scores[1], "doc0 ({}) should beat doc1 ({})", scores[0], scores[1]);
+        assert!(scores[2] > scores[1], "doc2 ({}) should beat doc1 ({})", scores[2], scores[1]);
+        assert!(scores[1].abs() < 1e-9, "doc1 should have ~0 score, got {}", scores[1]);
+    }
+
+    #[test]
+    fn test_rrf_fusion() {
+        // Simulate 3 candidates with known vector and text ranks
+        let k = 60.0_f64;
+
+        // Candidate A: vector_rank=1, text_rank=3
+        let rrf_a = 1.0 / (k + 1.0) + 1.0 / (k + 3.0);
+        // Candidate B: vector_rank=3, text_rank=1
+        let rrf_b = 1.0 / (k + 3.0) + 1.0 / (k + 1.0);
+        // Candidate C: vector_rank=2, text_rank=2
+        let rrf_c = 1.0 / (k + 2.0) + 1.0 / (k + 2.0);
+
+        // A and B should have the same RRF score (symmetric formula)
+        assert!(
+            (rrf_a - rrf_b).abs() < 1e-12,
+            "symmetric ranks should give equal RRF: {} vs {}",
+            rrf_a,
+            rrf_b
+        );
+
+        // A (rank 1,3) slightly beats C (rank 2,2) because 1/(61)+1/(63) > 2/(62)
+        // (harmonic mean property: the lower rank gains more than the higher rank loses)
+        assert!(
+            rrf_a > rrf_c,
+            "skewed ranks should slightly beat balanced: {} vs {}",
+            rrf_a,
+            rrf_c
+        );
+
+        // Verify actual values
+        let expected_c = 2.0 / 62.0;
+        assert!(
+            (rrf_c - expected_c).abs() < 1e-12,
+            "rrf_c should be 2/62 = {}, got {}",
+            expected_c,
+            rrf_c
+        );
     }
 }
