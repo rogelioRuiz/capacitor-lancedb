@@ -517,6 +517,17 @@ public protocol LanceDbHandleProtocol : AnyObject {
     func delete(key: String) async throws 
     
     /**
+     * Hybrid search combining vector ANN and BM25 text scoring via RRF fusion.
+     * `query_vector`: embedding for ANN search.
+     * `query_text`: text query for BM25 scoring.
+     * `limit`: number of results to return.
+     * `filter`: optional SQL-like predicate.
+     * `rrf_k`: RRF constant (default 60).
+     * `vector_limit`: number of ANN candidates to over-fetch (default limit * 4).
+     */
+    func hybridSearch(queryVector: [Float], queryText: String, limit: UInt32, filter: String?, rrfK: UInt32?, vectorLimit: UInt32?) async throws  -> [HybridSearchResult]
+    
+    /**
      * List memory keys, optionally filtered by prefix.
      */
     func list(prefix: String?, limit: UInt32?) async throws  -> [String]
@@ -644,6 +655,32 @@ open func delete(key: String)async throws  {
 }
     
     /**
+     * Hybrid search combining vector ANN and BM25 text scoring via RRF fusion.
+     * `query_vector`: embedding for ANN search.
+     * `query_text`: text query for BM25 scoring.
+     * `limit`: number of results to return.
+     * `filter`: optional SQL-like predicate.
+     * `rrf_k`: RRF constant (default 60).
+     * `vector_limit`: number of ANN candidates to over-fetch (default limit * 4).
+     */
+open func hybridSearch(queryVector: [Float], queryText: String, limit: UInt32, filter: String?, rrfK: UInt32?, vectorLimit: UInt32?)async throws  -> [HybridSearchResult] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_lancedb_ffi_fn_method_lancedbhandle_hybrid_search(
+                    self.uniffiClonePointer(),
+                    FfiConverterSequenceFloat.lower(queryVector),FfiConverterString.lower(queryText),FfiConverterUInt32.lower(limit),FfiConverterOptionString.lower(filter),FfiConverterOptionUInt32.lower(rrfK),FfiConverterOptionUInt32.lower(vectorLimit)
+                )
+            },
+            pollFunc: ffi_lancedb_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_lancedb_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_lancedb_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeHybridSearchResult.lift,
+            errorHandler: FfiConverterTypeLanceError.lift
+        )
+}
+    
+    /**
      * List memory keys, optionally filtered by prefix.
      */
 open func list(prefix: String?, limit: UInt32?)async throws  -> [String] {
@@ -759,6 +796,104 @@ public func FfiConverterTypeLanceDBHandle_lower(_ value: LanceDbHandle) -> Unsaf
 }
 
 
+public struct HybridSearchResult {
+    public var key: String
+    public var text: String
+    public var vectorRank: UInt32
+    public var textRank: UInt32
+    public var rrfScore: Double
+    public var metadata: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, text: String, vectorRank: UInt32, textRank: UInt32, rrfScore: Double, metadata: String?) {
+        self.key = key
+        self.text = text
+        self.vectorRank = vectorRank
+        self.textRank = textRank
+        self.rrfScore = rrfScore
+        self.metadata = metadata
+    }
+}
+
+
+
+extension HybridSearchResult: Equatable, Hashable {
+    public static func ==(lhs: HybridSearchResult, rhs: HybridSearchResult) -> Bool {
+        if lhs.key != rhs.key {
+            return false
+        }
+        if lhs.text != rhs.text {
+            return false
+        }
+        if lhs.vectorRank != rhs.vectorRank {
+            return false
+        }
+        if lhs.textRank != rhs.textRank {
+            return false
+        }
+        if lhs.rrfScore != rhs.rrfScore {
+            return false
+        }
+        if lhs.metadata != rhs.metadata {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
+        hasher.combine(text)
+        hasher.combine(vectorRank)
+        hasher.combine(textRank)
+        hasher.combine(rrfScore)
+        hasher.combine(metadata)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHybridSearchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HybridSearchResult {
+        return
+            try HybridSearchResult(
+                key: FfiConverterString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                vectorRank: FfiConverterUInt32.read(from: &buf), 
+                textRank: FfiConverterUInt32.read(from: &buf), 
+                rrfScore: FfiConverterDouble.read(from: &buf), 
+                metadata: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HybridSearchResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterUInt32.write(value.vectorRank, into: &buf)
+        FfiConverterUInt32.write(value.textRank, into: &buf)
+        FfiConverterDouble.write(value.rrfScore, into: &buf)
+        FfiConverterOptionString.write(value.metadata, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHybridSearchResult_lift(_ buf: RustBuffer) throws -> HybridSearchResult {
+    return try FfiConverterTypeHybridSearchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHybridSearchResult_lower(_ value: HybridSearchResult) -> RustBuffer {
+    return FfiConverterTypeHybridSearchResult.lower(value)
+}
+
+
 public struct SearchResult {
     public var key: String
     public var text: String
@@ -845,17 +980,17 @@ public enum LanceError {
 
     
     
-    case ConnectionFailed(message: String
+    case ConnectionFailed(msg: String
     )
-    case TableError(message: String
+    case TableError(msg: String
     )
-    case QueryError(message: String
+    case QueryError(msg: String
     )
-    case InsertError(message: String
+    case InsertError(msg: String
     )
-    case DeleteError(message: String
+    case DeleteError(msg: String
     )
-    case SchemaError(message: String
+    case SchemaError(msg: String
     )
 }
 
@@ -874,22 +1009,22 @@ public struct FfiConverterTypeLanceError: FfiConverterRustBuffer {
 
         
         case 1: return .ConnectionFailed(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 2: return .TableError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 3: return .QueryError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 4: return .InsertError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 5: return .DeleteError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 6: return .SchemaError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -903,34 +1038,34 @@ public struct FfiConverterTypeLanceError: FfiConverterRustBuffer {
 
         
         
-        case let .ConnectionFailed(message):
+        case let .ConnectionFailed(msg):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .TableError(message):
+        case let .TableError(msg):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .QueryError(message):
+        case let .QueryError(msg):
             writeInt(&buf, Int32(3))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .InsertError(message):
+        case let .InsertError(msg):
             writeInt(&buf, Int32(4))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .DeleteError(message):
+        case let .DeleteError(msg):
             writeInt(&buf, Int32(5))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .SchemaError(message):
+        case let .SchemaError(msg):
             writeInt(&buf, Int32(6))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         }
     }
@@ -1046,6 +1181,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeHybridSearchResult: FfiConverterRustBuffer {
+    typealias SwiftType = [HybridSearchResult]
+
+    public static func write(_ value: [HybridSearchResult], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHybridSearchResult.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HybridSearchResult] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HybridSearchResult]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHybridSearchResult.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSearchResult: FfiConverterRustBuffer {
     typealias SwiftType = [SearchResult]
 
@@ -1133,6 +1293,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_lancedb_ffi_checksum_method_lancedbhandle_delete() != 18738) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_lancedb_ffi_checksum_method_lancedbhandle_hybrid_search() != 51031) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_lancedb_ffi_checksum_method_lancedbhandle_list() != 30004) {

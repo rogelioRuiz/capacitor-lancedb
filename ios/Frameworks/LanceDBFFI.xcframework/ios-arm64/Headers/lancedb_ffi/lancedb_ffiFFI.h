@@ -276,6 +276,11 @@ uint64_t uniffi_lancedb_ffi_fn_method_lancedbhandle_clear(void*_Nonnull ptr, Rus
 uint64_t uniffi_lancedb_ffi_fn_method_lancedbhandle_delete(void*_Nonnull ptr, RustBuffer key
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_FN_METHOD_LANCEDBHANDLE_HYBRID_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_FN_METHOD_LANCEDBHANDLE_HYBRID_SEARCH
+uint64_t uniffi_lancedb_ffi_fn_method_lancedbhandle_hybrid_search(void*_Nonnull ptr, RustBuffer query_vector, RustBuffer query_text, uint32_t limit, RustBuffer filter, RustBuffer rrf_k, RustBuffer vector_limit
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_FN_METHOD_LANCEDBHANDLE_LIST
 #define UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_FN_METHOD_LANCEDBHANDLE_LIST
 uint64_t uniffi_lancedb_ffi_fn_method_lancedbhandle_list(void*_Nonnull ptr, RustBuffer prefix, RustBuffer limit
@@ -580,6 +585,12 @@ uint16_t uniffi_lancedb_ffi_checksum_method_lancedbhandle_clear(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_CHECKSUM_METHOD_LANCEDBHANDLE_DELETE
 #define UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_CHECKSUM_METHOD_LANCEDBHANDLE_DELETE
 uint16_t uniffi_lancedb_ffi_checksum_method_lancedbhandle_delete(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_CHECKSUM_METHOD_LANCEDBHANDLE_HYBRID_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_LANCEDB_FFI_CHECKSUM_METHOD_LANCEDBHANDLE_HYBRID_SEARCH
+uint16_t uniffi_lancedb_ffi_checksum_method_lancedbhandle_hybrid_search(void
     
 );
 #endif

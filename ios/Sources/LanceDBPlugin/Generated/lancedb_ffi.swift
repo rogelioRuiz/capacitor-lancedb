@@ -980,17 +980,17 @@ public enum LanceError {
 
     
     
-    case ConnectionFailed(message: String
+    case ConnectionFailed(msg: String
     )
-    case TableError(message: String
+    case TableError(msg: String
     )
-    case QueryError(message: String
+    case QueryError(msg: String
     )
-    case InsertError(message: String
+    case InsertError(msg: String
     )
-    case DeleteError(message: String
+    case DeleteError(msg: String
     )
-    case SchemaError(message: String
+    case SchemaError(msg: String
     )
 }
 
@@ -1009,22 +1009,22 @@ public struct FfiConverterTypeLanceError: FfiConverterRustBuffer {
 
         
         case 1: return .ConnectionFailed(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 2: return .TableError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 3: return .QueryError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 4: return .InsertError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 5: return .DeleteError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
         case 6: return .SchemaError(
-            message: try FfiConverterString.read(from: &buf)
+            msg: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1038,34 +1038,34 @@ public struct FfiConverterTypeLanceError: FfiConverterRustBuffer {
 
         
         
-        case let .ConnectionFailed(message):
+        case let .ConnectionFailed(msg):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .TableError(message):
+        case let .TableError(msg):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .QueryError(message):
+        case let .QueryError(msg):
             writeInt(&buf, Int32(3))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .InsertError(message):
+        case let .InsertError(msg):
             writeInt(&buf, Int32(4))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .DeleteError(message):
+        case let .DeleteError(msg):
             writeInt(&buf, Int32(5))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         
-        case let .SchemaError(message):
+        case let .SchemaError(msg):
             writeInt(&buf, Int32(6))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(msg, into: &buf)
             
         }
     }
